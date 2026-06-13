@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+.env
+
+# data pesada — no va a git
+data/raw/images/
+data/raw/bbc_news.csv
+data/raw/metadata.json
+data/processed/
+
+*.npy
+*.pkl
