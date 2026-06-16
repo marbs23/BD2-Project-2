@@ -22,12 +22,21 @@ RUIDO = [
     "Please include your name, age and location",
     "If you are reading this page and can't see the form",
     "visit the mobile version of theBBC website",
+    "Are you personally affected by the issues raised in this story",
+    "Upload pictures or video",
+    "Please include a contact number if you are willing to speak",
 ]
 
 def limpiar_body(texto):
     for frase in RUIDO:
         texto = texto.replace(frase, "")
-    return " ".join(texto.split())
+    
+    # Limpiar espacios dentro de cada párrafo pero preservar \n\n
+    parrafos = texto.split("\n\n")
+    parrafos_limpios = [" ".join(p.split()) for p in parrafos]
+    parrafos_limpios = [p for p in parrafos_limpios if p.strip()]
+    
+    return "\n\n".join(parrafos_limpios)
 
 def scrape_articulo(url):
     try:
@@ -52,7 +61,7 @@ def scrape_articulo(url):
             return None
 
         parrafos = article.find_all("p")
-        body = " ".join(p.get_text(strip=True) for p in parrafos)
+        body = "\n\n".join(p.get_text(strip=True) for p in parrafos)
         body = limpiar_body(body)
 
         if len(body) < 100:
@@ -82,7 +91,7 @@ if os.path.exists(OUTPUT):
     print(f"Reanudando — ya procesadas: {len(procesadas)}")
 
 # Cargar dataset original
-df = pd.read_csv("bbc_news.csv")
+df = pd.read_csv("data/bbc_news.csv")
 urls = df['link'].dropna().unique().tolist()
 pendientes = [u for u in urls if u not in procesadas][:200]
 print(f"URLs pendientes: {len(pendientes)}")
