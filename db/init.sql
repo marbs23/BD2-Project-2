@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS text_chunks (
     doc_id      INTEGER REFERENCES documents(doc_id),
     content     TEXT NOT NULL,
     position    INTEGER,
-    word_count  INTEGER
+    word_count  INTEGER,
+    norm        FLOAT          -- ||d||: norma TF-IDF del chunk, precalculada por SPIMI
 );
 
 CREATE TABLE IF NOT EXISTS image_chunks (

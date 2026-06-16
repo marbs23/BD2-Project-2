@@ -204,6 +204,8 @@ def build_index(conn=None) -> dict:
         peso(chunk) = (1 + log10(tf)) * idf
 
     y se persiste cada posting en inverted_index_text (word_id, chunk_id, tf_idf).
+    Además acumula y guarda la norma ||d|| = sqrt(sum(tf_idf^2)) de cada chunk en
+    text_chunks.norm, para que la búsqueda por coseno no la recalcule en cada query.
     """
     own_conn = conn is None
     if own_conn:
@@ -219,6 +221,7 @@ def build_index(conn=None) -> dict:
     cur.execute("TRUNCATE inverted_index_text")
 
     batch: list[tuple[int, int, float]] = []
+    norm_sq: dict[int, float] = defaultdict(float)  # acumulador de sum(tf_idf^2) por chunk
     n_terms = 0
     n_postings = 0
 
@@ -239,11 +242,26 @@ def build_index(conn=None) -> dict:
         for chunk_id, tf in postings:
             tf_idf = (1 + math.log10(tf)) * idf
             batch.append((word_id, chunk_id, tf_idf))
+            norm_sq[chunk_id] += tf_idf * tf_idf
             n_postings += 1
             if len(batch) >= INSERT_BATCH:
                 flush()
 
     flush()
+
+    # Persistir la norma de cada chunk (||d||) en text_chunks.norm.
+    cur.execute("UPDATE text_chunks SET norm = NULL")
+    norms = [(chunk_id, math.sqrt(sq)) for chunk_id, sq in norm_sq.items()]
+    execute_values(
+        cur,
+        """
+        UPDATE text_chunks AS t SET norm = v.norm
+        FROM (VALUES %s) AS v(chunk_id, norm)
+        WHERE t.chunk_id = v.chunk_id
+        """,
+        norms,
+    )
+
     conn.commit()
     cur.close()
 
@@ -255,6 +273,7 @@ def build_index(conn=None) -> dict:
         "n_terms": n_terms,
         "n_postings": n_postings,
         "n_chunks": n_chunks,
+        "n_norms": len(norms),
     }
 
 
@@ -266,6 +285,7 @@ if __name__ == "__main__":
     print(f"   Bloques en disco (fase 1): {stats['n_blocks']}")
     print(f"   Términos indexados:        {stats['n_terms']}")
     print(f"   Postings insertados:       {stats['n_postings']}")
+    print(f"   Normas de chunk guardadas: {stats['n_norms']}")
     print(f"   Chunks (N):                {stats['n_chunks']}")
 
     # Verificación directa contra la BD.
