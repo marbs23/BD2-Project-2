@@ -19,13 +19,19 @@ del diccionario mapean a chunks.
 import os
 import sys
 import glob
+import math
 import heapq
 from collections import defaultdict
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from psycopg2.extras import execute_values
+
 from db_module.connection import get_connection
 from text_module.extractor import preprocess
+
+# Tamaño de lote para los INSERT en inverted_index_text.
+INSERT_BATCH = 5000
 
 # Directorio donde se vuelcan los bloques intermedios (gitignored).
 BLOCK_DIR = "data/processed/spimi_blocks"
@@ -188,46 +194,98 @@ def merge_blocks(block_files: list[str]):
         yield current_term, merged
 
 
-if __name__ == "__main__":
-    conn = get_connection()
+def build_index(conn=None) -> dict:
+    """
+    Pipeline SPIMI completo: bloques -> merge -> TF-IDF -> inverted_index_text.
+
+    Para cada término se calcula, con las fórmulas vistas en clase:
+        df  = nº de chunks que contienen el término (largo de la posting list)
+        idf = log10(N / df)
+        peso(chunk) = (1 + log10(tf)) * idf
+
+    y se persiste cada posting en inverted_index_text (word_id, chunk_id, tf_idf).
+    """
+    own_conn = conn is None
+    if own_conn:
+        conn = get_connection()
+
     vocab_map = load_codebook(conn)
     n_chunks = count_chunks(conn)
-    conn.close()
 
-    print(f"Codebook (vocabulario a indexar): {len(vocab_map)} palabras")
-    print(f"Chunks a procesar (N):            {n_chunks}")
-    print(f"BLOCK_SIZE_POSTINGS:              {BLOCK_SIZE_POSTINGS}")
-
+    # Fase 1 + 2: bloques en disco y merge.
     block_files = build_blocks(set(vocab_map))
 
-    total_postings = 0
-    for bf in block_files:
-        with open(bf, encoding="utf-8") as f:
-            for line in f:
-                total_postings += len(line.split("\t")[1].split())
+    cur = conn.cursor()
+    cur.execute("TRUNCATE inverted_index_text")
 
-    print(f"\n✅ Fase 1 (bloques) completada")
-    print(f"   Bloques escritos en disco: {len(block_files)}  ({BLOCK_DIR}/)")
-    print(f"   Postings totales:          {total_postings}")
-
-    # Fase 2: merge y verificación de invariantes.
+    batch: list[tuple[int, int, float]] = []
     n_terms = 0
-    merged_postings = 0
-    orden_ok = True
-    chunk_orden_ok = True
-    prev_term = ""
+    n_postings = 0
+
+    def flush():
+        if batch:
+            execute_values(
+                cur,
+                "INSERT INTO inverted_index_text (word_id, chunk_id, tf_idf) VALUES %s",
+                batch,
+            )
+            batch.clear()
+
     for term, postings in merge_blocks(block_files):
         n_terms += 1
-        merged_postings += len(postings)
-        if term < prev_term:
-            orden_ok = False
-        prev_term = term
-        cids = [c for c, _ in postings]
-        if cids != sorted(cids):
-            chunk_orden_ok = False
+        df = len(postings)
+        idf = math.log10(n_chunks / df)
+        word_id = vocab_map[term]
+        for chunk_id, tf in postings:
+            tf_idf = (1 + math.log10(tf)) * idf
+            batch.append((word_id, chunk_id, tf_idf))
+            n_postings += 1
+            if len(batch) >= INSERT_BATCH:
+                flush()
 
-    print(f"\n✅ Fase 2 (merge) completada")
-    print(f"   Términos únicos en el índice: {n_terms}")
-    print(f"   Postings tras merge:          {merged_postings}  (debe == fase 1)")
-    print(f"   Términos en orden alfabético: {orden_ok}")
-    print(f"   Posting lists ordenadas por chunk_id: {chunk_orden_ok}")
+    flush()
+    conn.commit()
+    cur.close()
+
+    if own_conn:
+        conn.close()
+
+    return {
+        "n_blocks": len(block_files),
+        "n_terms": n_terms,
+        "n_postings": n_postings,
+        "n_chunks": n_chunks,
+    }
+
+
+if __name__ == "__main__":
+    print(f"Construyendo índice invertido con SPIMI (BLOCK_SIZE={BLOCK_SIZE_POSTINGS})...")
+    stats = build_index()
+
+    print(f"\n✅ Índice invertido construido y persistido en inverted_index_text")
+    print(f"   Bloques en disco (fase 1): {stats['n_blocks']}")
+    print(f"   Términos indexados:        {stats['n_terms']}")
+    print(f"   Postings insertados:       {stats['n_postings']}")
+    print(f"   Chunks (N):                {stats['n_chunks']}")
+
+    # Verificación directa contra la BD.
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT count(*) FROM inverted_index_text")
+    print(f"\n   inverted_index_text filas: {cur.fetchone()[0]}")
+
+    cur.execute(
+        """
+        SELECT cb.word, ii.chunk_id, ii.tf_idf
+        FROM inverted_index_text ii
+        JOIN codebook_text cb ON cb.word_id = ii.word_id
+        ORDER BY ii.tf_idf DESC
+        LIMIT 5
+        """
+    )
+    print(f"   Top 5 postings por TF-IDF (palabra, chunk_id, tf_idf):")
+    for word, chunk_id, tf_idf in cur.fetchall():
+        print(f"     {word:<15} chunk {chunk_id:<6} {tf_idf:.4f}")
+
+    cur.close()
+    conn.close()
