@@ -19,6 +19,7 @@ del diccionario mapean a chunks.
 import os
 import sys
 import glob
+import heapq
 from collections import defaultdict
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -130,6 +131,63 @@ def build_blocks(vocab: set[str]) -> list[str]:
     return block_files
 
 
+def _parse_postings(postings_str: str) -> list[tuple[int, int]]:
+    """Convierte 'chunk_id:tf chunk_id:tf ...' en [(chunk_id, tf), ...]."""
+    postings = []
+    for token in postings_str.split():
+        cid, tf = token.split(":")
+        postings.append((int(cid), int(tf)))
+    return postings
+
+
+def _iter_block(path: str):
+    """Itera (término, postings) de un bloque en disco (ya ordenado por término)."""
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            term, postings_str = line.rstrip("\n").split("\t")
+            yield term, _parse_postings(postings_str)
+
+
+def merge_blocks(block_files: list[str]):
+    """
+    Fase 2 de SPIMI: merge k-way de los bloques ordenados (mezcla externa).
+
+    Usa un heap con la cabeza de cada bloque. Para cada término se combinan las
+    posting lists de todos los bloques que lo contienen, concatenándolas en orden
+    de bloque (los bloques se generaron en orden de chunk_id creciente, así que la
+    posting list resultante queda ordenada por chunk_id).
+
+    Genera (término, [(chunk_id, tf), ...]) en orden alfabético de término.
+    """
+    iters = [_iter_block(bf) for bf in block_files]
+    heap: list[tuple[str, int, list[tuple[int, int]]]] = []
+
+    # Cabeza inicial de cada bloque.
+    for i, it in enumerate(iters):
+        term, postings = next(it, (None, None))
+        if term is not None:
+            heapq.heappush(heap, (term, i, postings))
+
+    while heap:
+        current_term = heap[0][0]
+        # Junta todas las entradas del término mínimo (puede estar en varios bloques).
+        same_term: list[tuple[int, list[tuple[int, int]]]] = []
+        while heap and heap[0][0] == current_term:
+            term, i, postings = heapq.heappop(heap)
+            same_term.append((i, postings))
+            nxt_term, nxt_postings = next(iters[i], (None, None))
+            if nxt_term is not None:
+                heapq.heappush(heap, (nxt_term, i, nxt_postings))
+
+        # Concatena en orden de bloque (i ascendente) => preserva orden de chunk_id.
+        same_term.sort(key=lambda x: x[0])
+        merged: list[tuple[int, int]] = []
+        for _, postings in same_term:
+            merged.extend(postings)
+
+        yield current_term, merged
+
+
 if __name__ == "__main__":
     conn = get_connection()
     vocab_map = load_codebook(conn)
@@ -151,3 +209,25 @@ if __name__ == "__main__":
     print(f"\n✅ Fase 1 (bloques) completada")
     print(f"   Bloques escritos en disco: {len(block_files)}  ({BLOCK_DIR}/)")
     print(f"   Postings totales:          {total_postings}")
+
+    # Fase 2: merge y verificación de invariantes.
+    n_terms = 0
+    merged_postings = 0
+    orden_ok = True
+    chunk_orden_ok = True
+    prev_term = ""
+    for term, postings in merge_blocks(block_files):
+        n_terms += 1
+        merged_postings += len(postings)
+        if term < prev_term:
+            orden_ok = False
+        prev_term = term
+        cids = [c for c, _ in postings]
+        if cids != sorted(cids):
+            chunk_orden_ok = False
+
+    print(f"\n✅ Fase 2 (merge) completada")
+    print(f"   Términos únicos en el índice: {n_terms}")
+    print(f"   Postings tras merge:          {merged_postings}  (debe == fase 1)")
+    print(f"   Términos en orden alfabético: {orden_ok}")
+    print(f"   Posting lists ordenadas por chunk_id: {chunk_orden_ok}")
