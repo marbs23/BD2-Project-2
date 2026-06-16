@@ -77,23 +77,18 @@ def _fetch_postings(conn, word_ids: list[int]) -> dict[int, list[tuple[int, floa
 
 def _chunk_norms(conn, chunk_ids: list[int]) -> dict[int, float]:
     """
-    Norma euclídea ||d|| de cada chunk candidato = sqrt(sum(tf_idf^2)) sobre TODOS
-    los términos del chunk (no solo los de la query). Se calcula al vuelo para los
-    candidatos con un agregado en SQL.
+    Norma euclídea ||d|| de cada chunk candidato, leída desde text_chunks.norm
+    (precalculada por SPIMI durante la indexación). Es un lookup por PK, mucho más
+    rápido que reagregar sum(tf_idf^2) sobre el índice en cada query.
     """
     if not chunk_ids:
         return {}
     cur = conn.cursor()
     cur.execute(
-        """
-        SELECT chunk_id, sum(tf_idf * tf_idf)
-        FROM inverted_index_text
-        WHERE chunk_id = ANY(%s)
-        GROUP BY chunk_id
-        """,
+        "SELECT chunk_id, norm FROM text_chunks WHERE chunk_id = ANY(%s)",
         (chunk_ids,),
     )
-    norms = {chunk_id: math.sqrt(sq) for chunk_id, sq in cur.fetchall()}
+    norms = {chunk_id: norm for chunk_id, norm in cur.fetchall() if norm is not None}
     cur.close()
     return norms
 
