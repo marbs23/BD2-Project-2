@@ -98,11 +98,43 @@ def _chunk_norms(conn, chunk_ids: list[int]) -> dict[int, float]:
     return norms
 
 
-def buscar(query: str, top_n: int = 10, conn=None) -> list[dict]:
+def _fetch_chunk_meta(conn, chunk_ids: list[int]) -> dict[int, dict]:
+    """Trae metadata de cada chunk candidato: doc_id, contenido, título y url."""
+    if not chunk_ids:
+        return {}
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT tc.chunk_id, tc.doc_id, tc.content, d.title, d.url
+        FROM text_chunks tc
+        JOIN documents d ON d.doc_id = tc.doc_id
+        WHERE tc.chunk_id = ANY(%s)
+        """,
+        (chunk_ids,),
+    )
+    meta = {
+        chunk_id: {"doc_id": doc_id, "content": content, "title": title, "url": url}
+        for chunk_id, doc_id, content, title, url in cur.fetchall()
+    }
+    cur.close()
+    return meta
+
+
+def _snippet(content: str, length: int = 160) -> str:
+    """Recorte del contenido del chunk para mostrar en los resultados."""
+    content = " ".join(content.split())
+    return content[:length] + ("…" if len(content) > length else "")
+
+
+def buscar(query: str, top_n: int = 10, group_by_doc: bool = True, conn=None) -> list[dict]:
     """
-    Recupera los top-N chunks para la query rankeados por similitud de coseno:
+    Recupera los top-N resultados para la query rankeados por similitud de coseno:
 
         cos(q, d) = (q · d) / (||q|| * ||d||)
+
+    Cada resultado incluye chunk_id, doc_id, title, url, score y snippet. Si
+    group_by_doc es True (por defecto) se conserva el mejor chunk por documento,
+    de modo que el top-N son artículos distintos.
     """
     own_conn = conn is None
     if own_conn:
@@ -142,16 +174,43 @@ def buscar(query: str, top_n: int = 10, conn=None) -> list[dict]:
         if d_norm > 0:
             scores[chunk_id] = dot_value / (query_norm * d_norm)
 
-    ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
-
+    # Enriquecer con metadata del documento.
+    meta = _fetch_chunk_meta(conn, list(scores))
     if own_conn:
         conn.close()
 
-    return [{"chunk_id": cid, "score": score} for cid, score in ranked]
+    results = []
+    for chunk_id, score in sorted(scores.items(), key=lambda kv: kv[1], reverse=True):
+        m = meta[chunk_id]
+        results.append({
+            "chunk_id": chunk_id,
+            "doc_id": m["doc_id"],
+            "title": m["title"],
+            "url": m["url"],
+            "score": score,
+            "snippet": _snippet(m["content"]),
+        })
+
+    # Deduplicar por documento: el mejor chunk representa al artículo.
+    if group_by_doc:
+        seen: set[int] = set()
+        deduped = []
+        for r in results:  # ya vienen ordenados por score descendente
+            if r["doc_id"] not in seen:
+                seen.add(r["doc_id"])
+                deduped.append(r)
+        results = deduped
+
+    return results[:top_n]
 
 
 if __name__ == "__main__":
     query = " ".join(sys.argv[1:]) or "russia ukraine war"
     print(f"Query: {query!r}\n")
-    for i, r in enumerate(buscar(query, top_n=10), start=1):
-        print(f"  {i:>2}. chunk {r['chunk_id']:<6} score={r['score']:.4f}")
+    resultados = buscar(query, top_n=10)
+    if not resultados:
+        print("  (sin resultados — ningún término de la query está en el codebook)")
+    for i, r in enumerate(resultados, start=1):
+        print(f"  {i:>2}. [{r['score']:.4f}] {r['title']}")
+        print(f"      doc {r['doc_id']} · chunk {r['chunk_id']}")
+        print(f"      {r['snippet']}\n")
