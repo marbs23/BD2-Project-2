@@ -75,12 +75,34 @@ def _fetch_postings(conn, word_ids: list[int]) -> dict[int, list[tuple[int, floa
     return postings
 
 
+def _chunk_norms(conn, chunk_ids: list[int]) -> dict[int, float]:
+    """
+    Norma euclídea ||d|| de cada chunk candidato = sqrt(sum(tf_idf^2)) sobre TODOS
+    los términos del chunk (no solo los de la query). Se calcula al vuelo para los
+    candidatos con un agregado en SQL.
+    """
+    if not chunk_ids:
+        return {}
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT chunk_id, sum(tf_idf * tf_idf)
+        FROM inverted_index_text
+        WHERE chunk_id = ANY(%s)
+        GROUP BY chunk_id
+        """,
+        (chunk_ids,),
+    )
+    norms = {chunk_id: math.sqrt(sq) for chunk_id, sq in cur.fetchall()}
+    cur.close()
+    return norms
+
+
 def buscar(query: str, top_n: int = 10, conn=None) -> list[dict]:
     """
-    Recupera los top-N chunks para la query.
+    Recupera los top-N chunks para la query rankeados por similitud de coseno:
 
-    Por ahora el score es el producto punto query·chunk (suma de los pesos de los
-    términos coincidentes); la normalización coseno se agrega en el siguiente paso.
+        cos(q, d) = (q · d) / (||q|| * ||d||)
     """
     own_conn = conn is None
     if own_conn:
@@ -91,8 +113,9 @@ def buscar(query: str, top_n: int = 10, conn=None) -> list[dict]:
     postings = _fetch_postings(conn, list(qtf_by_id))
     n_chunks = _count_chunks(conn)
 
-    # Acumulación término a término del producto punto.
-    scores: dict[int, float] = defaultdict(float)
+    # Acumulación término a término del producto punto + norma de la query.
+    dot: dict[int, float] = defaultdict(float)
+    query_norm_sq = 0.0
     for word_id, qtf in qtf_by_id.items():
         plist = postings.get(word_id, [])
         df = len(plist)
@@ -100,8 +123,24 @@ def buscar(query: str, top_n: int = 10, conn=None) -> list[dict]:
             continue
         idf = math.log10(n_chunks / df)
         q_weight = (1 + math.log10(qtf)) * idf
+        query_norm_sq += q_weight * q_weight
         for chunk_id, d_weight in plist:
-            scores[chunk_id] += q_weight * d_weight
+            dot[chunk_id] += q_weight * d_weight
+
+    if not dot or query_norm_sq == 0:
+        if own_conn:
+            conn.close()
+        return []
+
+    query_norm = math.sqrt(query_norm_sq)
+    chunk_norm = _chunk_norms(conn, list(dot))
+
+    # Normalización coseno.
+    scores: dict[int, float] = {}
+    for chunk_id, dot_value in dot.items():
+        d_norm = chunk_norm.get(chunk_id, 0.0)
+        if d_norm > 0:
+            scores[chunk_id] = dot_value / (query_norm * d_norm)
 
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
 
