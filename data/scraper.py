@@ -12,6 +12,16 @@ RUIDO = [
     "Share page",
     "Copy link",
     "About sharing",
+    ",external",
+    "haveyoursay@bbc.co.uk",
+    "HaveYourSay@bbc.co.uk",
+    "WhatsApp:+44 7756 165803",
+    "Tweet:@BBC_HaveYourSay",
+    "Please read ourterms & conditionsandprivacy policy",
+    "Please include a contact number",
+    "Please include your name, age and location",
+    "If you are reading this page and can't see the form",
+    "visit the mobile version of theBBC website",
 ]
 
 def limpiar_body(texto):
