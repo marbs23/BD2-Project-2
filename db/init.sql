@@ -17,8 +17,13 @@ CREATE TABLE IF NOT EXISTS text_chunks (
     content     TEXT NOT NULL,
     position    INTEGER,
     word_count  INTEGER,
-    norm        FLOAT          -- ||d||: norma TF-IDF del chunk, precalculada por SPIMI
+    norm        FLOAT,          -- ||d||: norma TF-IDF del chunk, precalculada por SPIMI
+    -- tsvector para full-text nativo de PostgreSQL (comparación GIN, Fase 3).
+    tsv         tsvector GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
 );
+
+-- Índice GIN para acelerar las consultas full-text (tsv @@ query).
+CREATE INDEX IF NOT EXISTS idx_text_chunks_tsv ON text_chunks USING GIN (tsv);
 
 CREATE TABLE IF NOT EXISTS image_chunks (
     chunk_id    SERIAL PRIMARY KEY,
