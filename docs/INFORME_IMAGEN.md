@@ -1,4 +1,4 @@
-# Informe — Pipeline de Imagen (Bag of Visual Words)
+# Informe - Pipeline de Imagen (Bag of Visual Words)
 
 Sección de imagen del sistema multimodal. Sigue la arquitectura unificada del
 proyecto, `split → extractor → codebook → índice invertido`, como un espejo del
@@ -41,10 +41,10 @@ al indexar (`image_chunks.norm`), igual que en texto.
 
 ## Persistencia
 
-- `codebook_image(word_id, centroid vector(128))` — las k palabras visuales.
-- `image_chunks(chunk_id, doc_id, patch_index, norm, histogram vector(512))` — un patch
+- `codebook_image(word_id, centroid vector(128))` - las k palabras visuales.
+- `image_chunks(chunk_id, doc_id, patch_index, norm, histogram vector(512))` - un patch
  por fila; el histograma denso alimenta la comparativa pgvector.
-- `inverted_index_image(word_id, chunk_id, tf_idf)` — las posting lists del método propio.
+- `inverted_index_image(word_id, chunk_id, tf_idf)` - las posting lists del método propio.
 
 ## Comparativa: índice propio vs pgvector
 

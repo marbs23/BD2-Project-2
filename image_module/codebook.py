@@ -1,5 +1,5 @@
 """
-Módulo Codebook — K-Means (issue #9)
+Módulo Codebook - K-Means (issue #9)
 
 Construye el diccionario visual: agrupa todos los descriptores SIFT en k clusters
 con K-Means y se queda con los centroides. Cada centroide es una "palabra visual",

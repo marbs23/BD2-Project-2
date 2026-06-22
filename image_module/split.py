@@ -1,5 +1,5 @@
 """
-Módulo Split — patches (issue #7)
+Módulo Split - patches (issue #7)
 
 Divide cada imagen en patches, el equivalente visual al split en párrafos del
 texto. Se trabaja en escala de grises (SIFT no usa color) y se redimensiona al

@@ -1,5 +1,5 @@
 """
-Módulo Extractor — SIFT (issue #8)
+Módulo Extractor - SIFT (issue #8)
 
 Extrae descriptores SIFT de cada patch. SIFT detecta keypoints y describe el
 entorno de cada uno con un vector de 128 dimensiones; un patch produce un número

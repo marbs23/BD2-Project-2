@@ -1,6 +1,6 @@
-# Plan de trabajo — Pipeline de Imagen (Alejandro)
+# Plan de trabajo - Pipeline de Imagen (Alejandro)
 
-> **Proyecto 2 BD2 — Sistema Multimodal de Recuperación y Búsqueda (App 3: Búsqueda Multimodal en Documentos)**
+> **Proyecto 2 BD2 - Sistema Multimodal de Recuperación y Búsqueda (App 3: Búsqueda Multimodal en Documentos)**
 > Dataset: BBC News. Modalidades: **texto (Martín)** + **imagen (Alejandro)**.
 > Este documento es la guía de la rama de imagen. Cada tarea sale como **PR que Martín revisa y mergea**.
 
@@ -33,42 +33,42 @@ documento imagen de un documento
 ## 1. Estado actual (auditado)
 
 **Ya en `main` (Martín):**
-- `data/scraper.py` — scrapea artículos BBC: `title, description, body, image_url, category`. **Solo guarda la URL de la imagen, no la descarga.** Tope actual `[:200]` → solo hay **199 artículos**.
-- `data/insert_documents.py` — carga el CSV a la tabla `documents`.
-- `text_module/` — pipeline de texto **completo y funcionando**: `split`, `extractor` (TF-IDF), `codebook` (top-k), `spimi` (índice invertido), `search` (coseno).
+- `data/scraper.py` - scrapea artículos BBC: `title, description, body, image_url, category`. **Solo guarda la URL de la imagen, no la descarga.** Tope actual `[:200]` → solo hay **199 artículos**.
+- `data/insert_documents.py` - carga el CSV a la tabla `documents`.
+- `text_module/` - pipeline de texto **completo y funcionando**: `split`, `extractor` (TF-IDF), `codebook` (top-k), `spimi` (índice invertido), `search` (coseno).
 - `db/init.sql`, `db_module/connection.py`, `docker-compose.yml`, `.env.example`.
 
 **Ya en `main` (Alejandro, issue #2):**
-- `src/image/scraper.py` — descarga imágenes a disco. **Funciona** (19/19 artículos en prueba).
+- `src/image/scraper.py` - descarga imágenes a disco. **Funciona** (19/19 artículos en prueba).
 
 **Lo que falta:** todo el pipeline de imagen (#7 → #26).
 
 ---
 
-## 2. Decisiones de diseño (LEER — esto define todo)
+## 2. Decisiones de diseño (LEER - esto define todo)
 
-### D1 — Un "chunk" de imagen es un **patch**, no la imagen entera
+### D1 - Un "chunk" de imagen es un **patch**, no la imagen entera
 Igual que en texto un chunk es un párrafo (hay varios por documento), en imagen un chunk es un patch
 (hay varios por imagen). Así:
 - la arquitectura queda simétrica con texto,
 - llegamos a los **100K chunks** del benchmark de forma natural: `~6,250 imágenes × 16 patches = 100K`,
 - la búsqueda recupera patches y **deduplica por documento** (idéntico a lo que ya hace `search.py` de texto).
 
-### D2 — Histograma de visual words con **TF-IDF** (no conteo crudo)
+### D2 - Histograma de visual words con **TF-IDF** (no conteo crudo)
 BoVW + TF-IDF sobre visual words es estándar (Sivic & Zisserman, *Video Google*). Permite **reutilizar
 literalmente** la lógica de coseno e índice invertido de texto. Mismo `inverted_index_*`, misma fórmula.
 
-### D3 — La imagen por documento es la **hero image** (`og:image`), 1:1
+### D3 - La imagen por documento es la **hero image** (`og:image`), 1:1
 Es la que Martín ya guarda en `documents.image_url`. Una imagen por documento mantiene el cruce
 texto↔imagen limpio para la búsqueda multimodal (App 3). El split en patches genera la multiplicidad.
 
-### D4 — Carpeta `image_module/` (no `src/image/`)
+### D4 - Carpeta `image_module/` (no `src/image/`)
 Para que sea simétrico con `text_module/`. En el Sprint 0 se migra el scraper actual.
 
-### D5 — Tamaño del codebook `k = 512` (configurable)
+### D5 - Tamaño del codebook `k = 512` (configurable)
 Rango típico BoVW: 256–1024. Con 100K chunks, 512 es buen punto de partida. Se deja como constante.
 
-### D6 — Split en grid **4×4 con solapamiento** sobre imagen redimensionada (lado mayor ~512px)
+### D6 - Split en grid **4×4 con solapamiento** sobre imagen redimensionada (lado mayor ~512px)
 4×4 = 16 patches. El solapamiento evita perder keypoints en los bordes. Patches sin keypoints SIFT
 (zonas planas: cielo, fondo liso) se descartan y no se indexan.
 
@@ -76,7 +76,7 @@ Rango típico BoVW: 256–1024. Con 100K chunks, 512 es buen punto de partida. S
 
 ## 3. Esquema de base de datos (objetivo)
 
-El `image_chunks` actual tiene `descriptor vector(128)` — **no sirve** para el enfoque índice invertido
+El `image_chunks` actual tiene `descriptor vector(128)` - **no sirve** para el enfoque índice invertido
 + histograma. Se rediseña espejo del de texto:
 
 ```sql
@@ -126,7 +126,7 @@ CREATE TABLE inverted_index_image (
 > Cada sprint termina con **goal cumplido + tests en verde** antes de pasar al siguiente.
 > La cadena es casi lineal (cada paso necesita el anterior).
 
-### Sprint 0 — Cimientos: datos + schema
+### Sprint 0 - Cimientos: datos + schema
 **Goal:** base poblada con ~6–7K documentos (texto + imagen descargada) y schema de imagen listo.
 
 - Escalar el scraping de artículos a ~7K (subir el tope `[:200]` en `data/scraper.py`) → `documents`.
@@ -136,11 +136,11 @@ CREATE TABLE inverted_index_image (
 
 ** Done:** `docker compose up` limpio · `SELECT count(*) FROM documents > 6000` · nº de imágenes en
 disco == nº de docs con imagen · las 3 tablas existen.
-**Issue:** nuevo — *"infra: schema de imagen + carga de datos"*. **Coordinar con Martín (toca su scraper e init.sql).**
+**Issue:** nuevo - *"infra: schema de imagen + carga de datos"*. **Coordinar con Martín (toca su scraper e init.sql).**
 
 ---
 
-### Sprint 1 — Extracción: patches + SIFT (#7, #8)
+### Sprint 1 - Extracción: patches + SIFT (#7, #8)
 **Goal:** de cada imagen → 16 patches → descriptores SIFT, cacheados en disco.
 
 - `image_module/split.py` (#7): redimensiona, parte en grid 4×4 con solape → patches.
@@ -153,7 +153,7 @@ patches vacíos manejados sin crash · descriptores se guardan y recargan · `py
 
 ---
 
-### Sprint 2 — Vocabulario visual + índice (#9, #10)
+### Sprint 2 - Vocabulario visual + índice (#9, #10)
 **Goal:** codebook entrenado + histograma TF-IDF por patch + índice invertido propio, todo en Postgres.
 
 - `image_module/codebook.py` (#9): `MiniBatchKMeans(n_clusters=512)` sobre todos los descriptores →
@@ -170,7 +170,7 @@ patches vacíos manejados sin crash · descriptores se guardan y recargan · `py
 
 ---
 
-### Sprint 3 — Búsqueda + comparativa pgvector (#15, #24)
+### Sprint 3 - Búsqueda + comparativa pgvector (#15, #24)
 **Goal:** búsqueda por imagen funcionando con **índice propio** y con **pgvector**.
 
 - `image_module/search.py` (#15): query imagen → patches → SIFT → histograma → coseno sobre
@@ -184,7 +184,7 @@ patches vacíos manejados sin crash · descriptores se guardan y recargan · `py
 
 ---
 
-### Sprint 4 — Backend + Frontend (#17, #25)
+### Sprint 4 - Backend + Frontend (#17, #25)
 **Goal:** demo viva end-to-end.
 
 - `backend/` (#17): FastAPI con `POST /search/text` (usa `text_module.search.buscar`),
@@ -197,7 +197,7 @@ la UI carga y muestra · demo end-to-end funciona.
 
 ---
 
-### Sprint 5 — Evaluación + informe (#26)
+### Sprint 5 - Evaluación + informe (#26)
 **Goal:** benchmark completo con gráficos para el informe.
 
 - `eval/benchmark.py` (#26): latencia, throughput, precisión@10, memoria e I/O en **1K / 10K / 100K**

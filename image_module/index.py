@@ -1,5 +1,5 @@
 """
-Módulo Índice Invertido — histogramas (issue #10)
+Módulo Índice Invertido - histogramas (issue #10)
 
 Convierte cada patch en un histograma de palabras visuales y construye el índice
 invertido con el mismo modelo y la misma ponderación TF-IDF que el texto. No usa

@@ -1,5 +1,5 @@
 """
-Módulo Búsqueda por imagen — similitud de histograma (issue #15)
+Módulo Búsqueda por imagen - similitud de histograma (issue #15)
 
 Dada una imagen de consulta, recupera los documentos con patches visualmente más
 parecidos. Es el mismo modelo de espacio vectorial de la búsqueda de texto, con

@@ -1,5 +1,5 @@
 """
-Comparativa pgvector — HNSW / IVFFlat (issue #24)
+Comparativa pgvector - HNSW / IVFFlat (issue #24)
 
 Baseline nativo contra el índice invertido propio. Los mismos histogramas TF-IDF
 guardados en image_chunks.histogram se buscan con los índices vectoriales de

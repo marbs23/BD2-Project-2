@@ -1,5 +1,5 @@
 """
-Evaluación experimental — pipeline de imagen (issue #26)
+Evaluación experimental - pipeline de imagen (issue #26)
 
 Compara el índice invertido propio contra los baselines de pgvector (HNSW, IVFFlat)
 sobre el mismo conjunto de consultas y a distintas cargas (1K / 10K / 100K chunks).
