@@ -1,0 +1,36 @@
+{
+  "chunks_indexados": 3035,
+  "cargas": [
+    1000
+  ],
+  "top_k": 10,
+  "resultados": [
+    {
+      "metodo": "propio",
+      "carga": 1000,
+      "latencia_fria_ms": 194.64,
+      "latencia_caliente_ms": 108.68,
+      "throughput_qps": 9.2,
+      "precision_at_k": 0.089,
+      "consultas": 30
+    },
+    {
+      "metodo": "hnsw",
+      "carga": 1000,
+      "latencia_fria_ms": 73.97,
+      "latencia_caliente_ms": 64.35,
+      "throughput_qps": 15.5,
+      "precision_at_k": 0.089,
+      "consultas": 30
+    },
+    {
+      "metodo": "ivfflat",
+      "carga": 1000,
+      "latencia_fria_ms": 56.32,
+      "latencia_caliente_ms": 64.27,
+      "throughput_qps": 15.6,
+      "precision_at_k": 0.089,
+      "consultas": 30
+    }
+  ]
+}
