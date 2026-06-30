@@ -21,7 +21,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db_module.connection import get_connection
 from text_module import search as text_search
-from image_module import search as image_search
+
+# La búsqueda por imagen depende de opencv/scikit-learn y de los datos de imagen.
+# Si esas dependencias no están disponibles (p. ej. entorno solo-texto), el backend
+# igual levanta y el texto funciona; los endpoints de imagen avisan que no está activa.
+try:
+    from image_module import search as image_search
+except Exception:
+    image_search = None
 
 app = FastAPI(title="BD2 - Búsqueda multimodal")
 app.add_middleware(
@@ -60,6 +67,8 @@ def _normalize(results: list[dict]) -> dict[int, float]:
 
 async def _buscar_imagen(file: UploadFile, top_n: int) -> list[dict]:
     """Guarda el upload en un temporal (buscar lee por ruta) y lo borra siempre."""
+    if image_search is None:
+        return []
     suffix = os.path.splitext(file.filename or "q.jpg")[1] or ".jpg"
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     try:
@@ -82,6 +91,8 @@ def search_text(query: str = Form(...), top_n: int = Form(10)):
 
 @app.post("/search/image")
 async def search_image(file: UploadFile = File(...), top_n: int = Form(10)):
+    if image_search is None:
+        return {"results": [], "detail": "Búsqueda por imagen no disponible en este entorno"}
     return {"results": await _buscar_imagen(file, top_n)}
 
 
@@ -99,7 +110,7 @@ async def search_multimodal(
     if query.strip():
         text_scores = _normalize(text_search.buscar(query, top_n=top_n * 3))
 
-    if file is not None:
+    if file is not None and image_search is not None:
         image_scores = _normalize(await _buscar_imagen(file, top_n * 3))
 
     combined: dict[int, float] = defaultdict(float)
