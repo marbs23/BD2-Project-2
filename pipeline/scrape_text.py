@@ -20,6 +20,16 @@ INPUT = DATA_DIR / "bbc_news.csv"
 OUTPUT = DATA_DIR / "articulos.csv"
 COLUMNAS = ["url", "title", "description", "body", "image_url", "category"]
 
+
+def clave(url) -> str:
+    """
+    Clave estable para reanudar: el link del RSS trae params de tracking
+    (?at_medium=RSS&at_campaign=...) que la url canónica guardada no tiene. Sin
+    quitarlos, ningún link del input coincidiría con lo ya scrapeado y se
+    re-scrapearía todo desde cero.
+    """
+    return str(url).split("?")[0]
+
 RUIDO = [
     "This video can not be played",
     "To play this video you need to enable JavaScript",
@@ -101,13 +111,13 @@ def run():
     procesadas = set()
     if OUTPUT.exists():
         df_existente = pd.read_csv(OUTPUT)
-        procesadas = set(df_existente["url"].dropna().tolist())
+        procesadas = {clave(u) for u in df_existente["url"].dropna()}
         print(f"Reanudando — ya procesadas: {len(procesadas)}")
 
     # Cargar dataset original
     df = pd.read_csv(INPUT)
     urls = df["link"].dropna().unique().tolist()
-    pendientes = [u for u in urls if u not in procesadas]
+    pendientes = [u for u in urls if clave(u) not in procesadas]
     print(f"URLs pendientes: {len(pendientes)}")
 
     # Scraping con guardado incremental

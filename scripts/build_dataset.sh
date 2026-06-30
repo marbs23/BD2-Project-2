@@ -18,21 +18,24 @@ cd "$(dirname "$0")/.."   # raíz del proyecto
 
 PY="${PYTHON:-python}"
 
-echo "==> 1/5  Scraping de artículos (data/bbc_news.csv -> data/articulos.csv)..."
+echo "==> 1/3  Scraping de artículos (data/bbc_news.csv -> data/articulos.csv)..."
 $PY -m pipeline.scrape_text
 
-echo "==> 2/5  Índice de texto (insert -> chunks -> TF-IDF -> codebook -> SPIMI)..."
+echo "==> 2/3  Índice de texto (insert -> chunks -> TF-IDF -> codebook -> SPIMI)..."
 ./scripts/setup.sh
 
-echo "==> 3/5  Descarga de imágenes (documents.image_url -> data/raw/images)..."
-$PY -m pipeline.scrape_images
+# --- Pipeline de IMAGEN desactivado por ahora ---------------------------------
+# Descomenta este bloque cuando quieras incluir la modalidad de imagen en el dump.
+# echo "==> Descarga de imágenes (documents.image_url -> data/raw/images)..."
+# $PY -m pipeline.scrape_images
+#
+# echo "==> Pipeline de imagen (SIFT -> K-Means -> índice invertido)..."
+# $PY -m src.indexing.image.extractor
+# $PY -m src.indexing.image.codebook
+# $PY -m src.indexing.image.index
+# ------------------------------------------------------------------------------
 
-echo "==> 4/5  Pipeline de imagen (SIFT -> K-Means -> índice invertido)..."
-$PY -m src.indexing.image.extractor
-$PY -m src.indexing.image.codebook
-$PY -m src.indexing.image.index
-
-echo "==> 5/5  Generando dump distribuible (db/seed/dump.sql.gz)..."
+echo "==> 3/3  Generando dump distribuible (db/seed/dump.sql.gz)..."
 mkdir -p db/seed
 docker exec bd2_postgres pg_dump --data-only --no-owner \
     -U "${POSTGRES_USER:-bd2user}" -d "${POSTGRES_DB:-bd2_multimodal}" \
