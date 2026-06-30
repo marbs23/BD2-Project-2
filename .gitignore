@@ -1,13 +1,26 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
+.DS_Store
 .env
+.env.local
 
-# data pesada — no va a git
-data/raw/images/
-data/raw/bbc_news.csv
-data/raw/metadata.json
-data/processed/
+# Datos — demasiado pesados o generados por scraping/indexado (no reproducibles en git)
+# Los usuarios clonan el repo, descargan Kaggle, ejecutan scraper/setup.sh
+data/bbc_news.csv           # Dataset original de Kaggle (~13MB)
+data/articulos.csv          # CSV scrapeado (~1MB)
+data/raw/                   # Imágenes descargadas + caché
+data/processed/             # Artefactos: pickle, npy, bloques SPIMI temporales
 
+# Artefactos de indexado + caché
 *.npy
 *.pkl
+*.pkl.tmp
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
