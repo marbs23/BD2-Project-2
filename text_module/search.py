@@ -94,13 +94,13 @@ def _chunk_norms(conn, chunk_ids: list[int]) -> dict[int, float]:
 
 
 def _fetch_chunk_meta(conn, chunk_ids: list[int]) -> dict[int, dict]:
-    """Trae metadata de cada chunk candidato: doc_id, contenido, título y url."""
+    """Trae metadata de cada chunk: doc_id, contenido, título, url, categoría e imagen."""
     if not chunk_ids:
         return {}
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT tc.chunk_id, tc.doc_id, tc.content, d.title, d.url
+        SELECT tc.chunk_id, tc.doc_id, tc.content, d.title, d.url, d.category, d.image_url
         FROM text_chunks tc
         JOIN documents d ON d.doc_id = tc.doc_id
         WHERE tc.chunk_id = ANY(%s)
@@ -108,8 +108,9 @@ def _fetch_chunk_meta(conn, chunk_ids: list[int]) -> dict[int, dict]:
         (chunk_ids,),
     )
     meta = {
-        chunk_id: {"doc_id": doc_id, "content": content, "title": title, "url": url}
-        for chunk_id, doc_id, content, title, url in cur.fetchall()
+        chunk_id: {"doc_id": doc_id, "content": content, "title": title, "url": url,
+                   "category": category, "image_url": image_url}
+        for chunk_id, doc_id, content, title, url, category, image_url in cur.fetchall()
     }
     cur.close()
     return meta
@@ -182,6 +183,8 @@ def buscar(query: str, top_n: int = 10, group_by_doc: bool = True, conn=None) ->
             "doc_id": m["doc_id"],
             "title": m["title"],
             "url": m["url"],
+            "category": m["category"],
+            "image_url": m["image_url"],
             "score": score,
             "snippet": _snippet(m["content"]),
         })
