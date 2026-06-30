@@ -196,6 +196,32 @@ Resultados sobre muestra de 199 documentos:
 
 ---
 
+## Comparación con PostgreSQL (Fase 3)
+
+Para contrastar el índice invertido propio contra los índices nativos de PostgreSQL, se implementó **búsqueda full-text con índice GIN** sobre el mismo corpus de chunks.
+
+- **Índice:** columna generada `text_chunks.tsv` (`to_tsvector('english', content)`) con índice **GIN** (`idx_text_chunks_tsv`). Ver `text_module/gin_index.py`.
+- **Consulta:** `text_module/gin_search.py` usa `plainto_tsquery` + el operador `@@` y rankea con `ts_rank`, devolviendo resultados con la misma forma que la búsqueda propia para una comparación justa.
+- **Endpoint:** `POST /search/fulltext` en `backend/gin_api.py`.
+
+**Latencia** (promedio de 50 repeticiones, 5 queries — `text_module/gin_benchmark.py`):
+
+| Método | Latencia promedio |
+|--------|-------------------|
+| GIN full-text (nativo) | ~1.1 ms |
+| Índice invertido propio | ~8.2 ms |
+
+`EXPLAIN ANALYZE` confirma que la consulta usa el índice (`Bitmap Index Scan on idx_text_chunks_tsv`). El GIN nativo gana en latencia (motor en C, una sola consulta) frente a la acumulación TF-IDF en Python; el análisis completo de precisión y trade-offs corresponde a la Fase 4.
+
+```bash
+python text_module/gin_index.py        # crea columna tsv + índice GIN
+python text_module/gin_search.py "russia ukraine war"
+python text_module/gin_benchmark.py    # latencia GIN vs invertido + EXPLAIN ANALYZE
+uvicorn backend.gin_api:app            # POST /search/fulltext
+```
+
+---
+
 ## Estado del proyecto
 
 | Módulo | Estado |
@@ -211,7 +237,8 @@ Resultados sobre muestra de 199 documentos:
 | Módulo imagen (SIFT + K-Means) | 🔄 En desarrollo |
 | Backend FastAPI | 🔄 En desarrollo |
 | Frontend Streamlit | 🔄 En desarrollo |
-| Evaluación comparativa | 🔄 Pendiente |
+| GIN / full-text texto (PostgreSQL) | ✅ Completo |
+| Evaluación comparativa completa (Fase 4) | 🔄 Pendiente |
 
 ---
 
