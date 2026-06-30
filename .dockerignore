@@ -1,0 +1,12 @@
+.venv
+.git
+__pycache__
+*.pyc
+*.npy
+*.pkl
+.env
+data/raw
+data/processed
+data/bbc_news.csv
+data/articulos.csv
+eval/results
