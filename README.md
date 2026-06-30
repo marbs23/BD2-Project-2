@@ -92,84 +92,55 @@ BD2-Project-2/
 
 ## Instalación y uso
 
+### Quick Start (usuarios clonadores)
+
+```bash
+# Clonar repo (solo código)
+git clone https://github.com/marbs23/BD2-Project-2.git
+cd BD2-Project-2
+
+# Descargar dataset de Kaggle + scrapear + construir índices
+# Ver CONTRIBUTING.md para instrucciones paso a paso
+```
+
+**👉 Lee [CONTRIBUTING.md](CONTRIBUTING.md) para el flujo completo** — incluye:
+- Cómo descargar el dataset de Kaggle sin subir data a git
+- Cómo scrapear artículos (rápido con 200, o lento con todo)
+- Cómo ejecutar el pipeline de indexado con `./scripts/setup.sh`
+- Cómo levantar la app (Docker o local)
+- Troubleshooting y notas de reproducibilidad
+
 ### Requisitos
 
 - Docker y Docker Compose
-- Python 3.10+
-- Cuenta en Kaggle (para descargar el dataset)
+- Python 3.12+
+- Pip + venv
+- Acceso a Kaggle (para descargar el dataset BBC News)
 
-### 1. Clonar el repositorio
-
-```bash
-git clone https://github.com/<usuario>/BD2-Project-2.git
-cd BD2-Project-2
-```
-
-### 2. Configurar variables de entorno
+### Flujo rápido (resumen)
 
 ```bash
-cp .env.example .env
-# Editar .env con tus credenciales
-```
-
-### 3. Levantar PostgreSQL con pgvector
-
-```bash
-docker compose up -d
-```
-
-Verificar que pgvector está activo:
-
-```bash
-docker exec -it bd2_postgres psql -U bd2user -d bd2_multimodal -c "\dx"
-```
-
-### 4. Descargar el dataset
-
-```bash
-pip install kaggle
-kaggle datasets download -d gpreda/bbc-news
-unzip bbc-news.zip -d data/
-```
-
-### 5. Correr el scraper
-
-```bash
+# 1. Setup local
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python data/scraper.py
+
+# 2. BD en Docker
+docker compose up -d db
+
+# 3. Descargar Kaggle + Scrapear (ver CONTRIBUTING.md para detalles)
+python data/scraper.py                   # Crea articulos.csv
+
+# 4. Construir índices
+./scripts/setup.sh
+
+# 5. Levantar app
+uvicorn backend.app:app --port 8000      # Terminal 1: API
+python -m http.server 5500 --directory frontend  # Terminal 2: UI
 ```
 
-El scraper tiene reanudación automática: si se interrumpe, al volver a correrlo detecta qué URLs ya fueron procesadas y continúa desde donde se quedó.
+Abre **http://localhost:5500/index.html** — interfaz con 3 modos: texto, imagen y multimodal.
 
-### 6. Insertar documentos en PostgreSQL
-
-```bash
-python data/insert_documents.py
-```
-
-### 7. Correr el módulo Split
-
-```bash
-python text_module/split.py
-```
-
-### 8. Levantar el backend y el frontend
-
-```bash
-# Backend (API REST de búsqueda)
-uvicorn backend.app:app --port 8000
-
-# Frontend (en otra terminal, sirve el HTML estático)
-python -m http.server 5500 --directory frontend
-```
-
-Abre `http://localhost:5500/index.html`. La interfaz tiene tres modos: **texto**,
-**imagen** y **multimodal**, y muestra los resultados con título, categoría y thumbnail.
-
-> La búsqueda por **texto** funciona con solo el módulo de texto. La búsqueda por
-> **imagen** requiere las dependencias y los datos del módulo de imagen (`opencv`,
-> `scikit-learn` y la tabla de imágenes poblada); si no están, el backend igual
-> levanta y los endpoints de imagen avisan que no está disponible.
+**Swagger (API docs):** http://localhost:8000/docs
 
 ---
 
