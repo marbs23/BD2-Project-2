@@ -6,17 +6,22 @@ __pycache__/
 .env
 .env.local
 
-# Datos — demasiado pesados o generados por scraping/indexado (no reproducibles en git)
-# Los usuarios clonan el repo, descargan Kaggle, ejecutan scraper/setup.sh
-data/bbc_news.csv           # Dataset original de Kaggle (~13MB)
-data/articulos.csv          # CSV scrapeado (~1MB)
-data/raw/                   # Imágenes descargadas + caché
-data/processed/             # Artefactos: pickle, npy, bloques SPIMI temporales
+# Datos — demasiado pesados o generados (no reproducibles en git).
+# Quien clona el repo restaura la BD desde el dump (ver README), no scrapea.
+data/*
+!data/.gitkeep
+
+# Dump de la BD distribuible (se descarga del Drive, ver README).
+db/seed/*
+!db/seed/.gitkeep
 
 # Artefactos de indexado + caché
 *.npy
 *.pkl
 *.pkl.tmp
+
+# Resultados de evaluación (regenerables con eval/benchmark.py)
+eval/results/
 
 # IDEs
 .vscode/

@@ -5,8 +5,6 @@ __pycache__
 *.npy
 *.pkl
 .env
-data/raw
-data/processed
-data/bbc_news.csv
-data/articulos.csv
+data
+db/seed
 eval/results

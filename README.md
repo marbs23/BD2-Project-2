@@ -1,61 +1,30 @@
 # Sistema Multimodal de Recuperación y Búsqueda
-**Curso:** Base de Datos 2 — UTEC 2026-1  
-**Opción implementada:** Búsqueda Multimodal en Documentos (Texto + Imagen)  
+
+**Curso:** Base de Datos 2 — UTEC 2026-1
+**Opción implementada:** Búsqueda Multimodal en Documentos (Texto + Imagen)
 **Dataset:** [BBC News RSS Feeds — Kaggle (gpreda)](https://www.kaggle.com/datasets/gpreda/bbc-news)
 
----
+Sistema de recuperación de información que indexa artículos de BBC News combinando dos modalidades y
+permite buscar por consulta textual, por imagen, o por una fusión de ambas:
 
-## Descripción del sistema
+- **Texto:** split por párrafos → TF-IDF → codebook lingüístico (top-k) → índice invertido con **SPIMI**.
+- **Imagen:** patches → **SIFT** → codebook visual (**K-Means**, BoVW) → índice invertido por histogramas.
 
-Sistema de recuperación de información que indexa artículos de noticias de BBC combinando dos modalidades:
-
-- **Texto:** pipeline TF-IDF + codebook lingüístico + índice invertido (SPIMI)
-- **Imagen:** pipeline SIFT + codebook visual (K-Means) + índice invertido por histogramas
-
-El usuario puede buscar por consulta textual o por imagen y el sistema retorna los documentos más similares combinando ambos scores.
+Ambas modalidades comparten el mismo modelo de espacio vectorial (ranking por similitud de coseno) y se
+cruzan por `doc_id`, que une el texto y la imagen de un mismo artículo.
 
 ---
 
-## Arquitectura
+## Mapeo al checklist del proyecto
 
-```
-Dataset BBC News
-      ↓
-  [SCRAPER]
-  title, body, description, image_url, category
-      ↓
-  PostgreSQL → documents
-      ↓
-  ┌─────────────────────────────────────┐
-  │         MODALIDAD TEXTO             │
-  │  Split → TF-IDF → Codebook → SPIMI │
-  └─────────────────────────────────────┘
-  ┌─────────────────────────────────────┐
-  │         MODALIDAD IMAGEN            │
-  │  Split → SIFT → K-Means → Histog.  │
-  └─────────────────────────────────────┘
-      ↓
-  [BACKEND FastAPI]
-  /search/text  /search/image  /search/multimodal
-      ↓
-  [FRONTEND HTML/JS]
-```
-
----
-
-## Dataset
-
-| Característica | Valor |
-|----------------|-------|
-| Fuente | BBC News RSS Feeds (Kaggle) |
-| Filas originales | 42,115 |
-| URLs únicas | 37,856 |
-| Artículos scrapeados | ~37,000 (en proceso) |
-| Columnas extraídas | url, title, description, body, image_url, category |
-| Categorías | Europe, UK, Business, Technology, Science, Sport, Entertainment, entre otras |
-| Tamaño promedio de body | ~750 palabras por artículo |
-
-**Nota:** El dataset original contiene solo metadatos RSS (título, descripción corta, link). El body completo e imagen principal se obtienen mediante scraping de cada URL.
+| Requisito | Modalidad | Implementación |
+|-----------|-----------|----------------|
+| Split | Texto / Imagen | `src/indexing/text/split.py` (párrafos) · `src/indexing/image/split.py` (patches 4×4) |
+| Extractor | Texto / Imagen | TF-IDF en `src/indexing/text/extractor.py` · SIFT en `src/indexing/image/extractor.py` |
+| Codebook | Texto / Imagen | top-k lingüístico en `src/indexing/text/codebook.py` · K-Means en `src/indexing/image/codebook.py` |
+| Índice invertido | Texto / Imagen | **SPIMI** en `src/indexing/text/spimi.py` · histogramas en `src/indexing/image/index.py` |
+| Persistencia | Compartida | PostgreSQL + pgvector (`db/schema.sql`): codebooks, histogramas, índices y metadatos |
+| Búsqueda | Texto / Imagen | coseno en `src/indexing/{text,image}/search.py`; fusión en `src/api/main.py` |
 
 ---
 
@@ -63,144 +32,110 @@ Dataset BBC News
 
 ```
 BD2-Project-2/
-├── docker-compose.yml
-├── .env.example
-├── README.md
+├── docker-compose.yml          # db (pgvector) + backend (FastAPI) + frontend (nginx)
+├── Dockerfile                  # imagen del backend
+├── requirements.txt
+├── .env.example                # plantilla de configuración (sin secretos reales)
+│
+├── src/                        # código de la aplicación
+│   ├── api/main.py             # API REST (endpoints de búsqueda)
+│   ├── core/
+│   │   ├── db.py               # conexión a PostgreSQL
+│   │   └── paths.py            # rutas de datos ancladas a la raíz del repo
+│   └── indexing/
+│       ├── text/               # split, extractor, codebook, spimi, search
+│       └── image/              # split, extractor, codebook, index, search, pgvec
+│
+├── pipeline/                   # SOLO maintainer: generación de datos
+│   ├── scrape_text.py          # bbc_news.csv -> articulos.csv
+│   ├── scrape_images.py        # documents.image_url -> data/raw/images
+│   └── ingest_documents.py     # articulos.csv -> tabla documents
+│
 ├── db/
-│   └── init.sql
-├── data/
-│   ├── scraper.py
-│   └── insert_documents.py
-├── text_module/
-│   ├── split.py
-│   ├── extractor.py        (TF-IDF — en desarrollo)
-│   ├── codebook.py         (en desarrollo)
-│   ├── spimi.py            (en desarrollo)
-│   └── search.py           (en desarrollo)
-├── image_module/           (en desarrollo — compañero)
-├── db_module/
-│   └── connection.py
-├── backend/
-│   └── app.py              (en desarrollo)
-├── frontend/
-│   └── app.py              (en desarrollo)
-└── evaluation/
-    └── benchmark.py        (en desarrollo)
+│   ├── schema.sql              # esquema (7 tablas)
+│   ├── restore.sh              # restaura el dump en el primer arranque
+│   └── seed/                   # aquí va dump.sql.gz (descargado del Drive)
+│
+├── scripts/
+│   ├── setup.sh                # construye el índice de texto desde el CSV
+│   └── build_dataset.sh        # scrape + index + pg_dump (regenera el dump)
+│
+├── frontend/index.html         # SPA: modos texto / imagen / multimodal
+├── eval/                       # benchmark del índice propio vs pgvector
+└── tests/                      # pytest
 ```
 
 ---
 
-## Instalación y uso
+## Puesta en marcha (usuario que consume)
 
-### Quick Start (usuarios clonadores)
+El que clona el repo **no scrapea ni indexa**: la base de datos viene poblada en un dump que se descarga
+aparte (pesa demasiado para git) y se restaura sola en el primer arranque del contenedor.
 
 ```bash
-# Clonar repo (solo código)
+# 1. Clonar
 git clone https://github.com/marbs23/BD2-Project-2.git
 cd BD2-Project-2
 
-# Descargar dataset de Kaggle + scrapear + construir índices
-# Ver CONTRIBUTING.md para instrucciones paso a paso
+# 2. Configurar entorno
+cp .env.example .env            # rellena POSTGRES_USER / POSTGRES_PASSWORD
+
+# 3. Descargar el dump de la BD y colocarlo en db/seed/
+#    Link: <PEGAR_AQUÍ_EL_LINK_DE_GOOGLE_DRIVE>
+#    -> db/seed/dump.sql.gz
+
+# 4. Levantar todo
+docker compose up --build
 ```
 
-**👉 Lee [CONTRIBUTING.md](CONTRIBUTING.md) para el flujo completo** — incluye:
-- Cómo descargar el dataset de Kaggle sin subir data a git
-- Cómo scrapear artículos (rápido con 200, o lento con todo)
-- Cómo ejecutar el pipeline de indexado con `./scripts/setup.sh`
-- Cómo levantar la app (Docker o local)
-- Troubleshooting y notas de reproducibilidad
+- Frontend: **http://localhost:5500**
+- API (Swagger): **http://localhost:8000/docs**
+- Health: **http://localhost:8000/health**
 
-### Requisitos
+En el primer arranque Postgres ejecuta `db/schema.sql` y luego `db/restore.sh`, que carga
+`db/seed/dump.sql.gz`. Para reimportar desde cero: `docker compose down -v && docker compose up`.
 
-- Docker y Docker Compose
-- Python 3.12+
-- Pip + venv
-- Acceso a Kaggle (para descargar el dataset BBC News)
+> Sin el dump en `db/seed/`, la app igual levanta pero con la BD vacía (solo el esquema).
 
-### Flujo rápido (resumen)
+---
+
+## Regenerar los datos (maintainer)
+
+Solo para quien mantiene el dataset. Requiere el dataset de Kaggle en `data/bbc_news.csv` y la BD
+levantada (`docker compose up -d db`).
 
 ```bash
-# 1. Setup local
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. BD en Docker
-docker compose up -d db
-
-# 3. Descargar Kaggle + Scrapear (ver CONTRIBUTING.md para detalles)
-python data/scraper.py                   # Crea articulos.csv
-
-# 4. Construir índices
-./scripts/setup.sh
-
-# 5. Levantar app
-uvicorn backend.app:app --port 8000      # Terminal 1: API
-python -m http.server 5500 --directory frontend  # Terminal 2: UI
+./scripts/build_dataset.sh      # scrape -> index (texto+imagen) -> db/seed/dump.sql.gz
 ```
 
-Abre **http://localhost:5500/index.html** — interfaz con 3 modos: texto, imagen y multimodal.
+Luego sube `db/seed/dump.sql.gz` a Google Drive y actualiza el link en este README.
 
-**Swagger (API docs):** http://localhost:8000/docs
-
----
-
-## Detalles de implementación
-
-### Módulo: Scraper (`data/scraper.py`)
-
-Extrae de cada artículo de BBC:
-
-| Campo | Fuente HTML |
-|-------|-------------|
-| `title` | `<meta property="og:title">` |
-| `description` | `<meta property="og:description">` |
-| `image_url` | `<meta property="og:image">` |
-| `category` | `<meta property="article:section">` |
-| `body` | Párrafos `<p>` dentro de `<article>` |
-
-Características:
-- Guardado incremental: cada artículo se escribe al CSV inmediatamente
-- Reanudación automática por conjunto de URLs ya procesadas
-- Limpieza de ruido: elimina frases de navegación, formularios de contacto y referencias externas de BBC
-- Pausa de 300ms entre requests para no saturar los servidores
-
-### Módulo: Split (`text_module/split.py`)
-
-Divide el body de cada artículo en chunks de párrafo para su posterior indexación.
-
-| Parámetro | Valor |
-|-----------|-------|
-| Separador | Doble salto de línea `\n\n` |
-| Mínimo de palabras por chunk | 30 |
-| Estrategia para párrafos cortos | Acumulación en buffer hasta alcanzar mínimo |
-
-Resultados sobre muestra de 199 documentos:
-
-| Métrica | Valor |
-|---------|-------|
-| Total chunks | ~3,800 |
-| Promedio por documento | ~19 chunks |
-| Mínimo palabras | 30 |
-| Máximo palabras | 152 |
+El scraper es **reanudable** (continúa donde quedó) y pausa entre requests para no saturar BBC.
+`scripts/setup.sh` reconstruye solo el índice de texto si necesitas iterar sobre esa parte.
 
 ---
 
-## Estado del proyecto
+## API
 
-| Módulo | Estado |
-|--------|--------|
-| Setup Docker + pgvector | ✅ Completo |
-| Scraper BBC News | ✅ Completo |
-| Inserción en PostgreSQL | ✅ Completo |
-| Split de texto | ✅ Completo |
-| Extractor TF-IDF | ✅ Completo |
-| Codebook lingüístico | ✅ Completo |
-| Índice invertido SPIMI | ✅ Completo |
-| Búsqueda por texto | ✅ Completo |
-| Módulo imagen (SIFT + K-Means) | ✅ Completo |
-| Backend FastAPI (texto/imagen/multimodal) | ✅ Completo |
-| Frontend (texto/imagen/multimodal) | ✅ Completo |
-| Evaluación comparativa (Fase 4) | 🔄 En curso |
+| Endpoint | Método | Parámetros |
+|----------|--------|-----------|
+| `/health` | GET | — |
+| `/search/text` | POST | `query`, `top_n` |
+| `/search/image` | POST | `file` (multipart), `top_n` |
+| `/search/multimodal` | POST | `query`, `file` (opc.), `alpha`, `top_n` |
+
+`alpha` pondera el texto y `(1-alpha)` la imagen en la fusión multimodal.
+
+---
+
+## Tests
+
+```bash
+pytest
+```
 
 ---
 
@@ -208,5 +143,5 @@ Resultados sobre muestra de 199 documentos:
 
 | Integrante | Modalidad |
 |------------|-----------|
-| Martin | Texto (Split, TF-IDF, Codebook, SPIMI) |
-| Marcelo | Imagen (SIFT, K-Means, Histogramas) |
+| Martin | Texto (split, TF-IDF, codebook, SPIMI) |
+| Marcelo | Imagen (SIFT, K-Means, histogramas) |

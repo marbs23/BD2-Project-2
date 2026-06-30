@@ -15,22 +15,17 @@ que la colección no alcanza se omiten con aviso. Cada baseline pgvector se mide
 su índice aislado: si HNSW e IVFFlat coexisten, el planner elegiría uno solo y las
 dos filas medirían lo mismo. Semilla fija para reproducir el muestreo de consultas.
 """
-import os
-import sys
 import json
 import time
 import random
-from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from db_module.connection import get_connection
-from image_module import search as propio
-from image_module import pgvector_bench as pg
+from src.core.db import get_connection
+from src.core.paths import IMAGES_DIR, ROOT
+from src.indexing.image import search as propio
+from eval import pgvector_bench as pg
 
 SEED = 42
-RESULTS_DIR = Path("eval/results")
-IMAGES_DIR = Path("data/raw/images")
+RESULTS_DIR = ROOT / "eval" / "results"
 LOADS = [1000, 10000, 100000]
 TOP_K = 10
 N_QUERIES = 30
