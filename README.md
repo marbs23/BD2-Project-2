@@ -36,9 +36,9 @@ Dataset BBC News
   └─────────────────────────────────────┘
       ↓
   [BACKEND FastAPI]
-  /search/text  /search/image
+  /search/text  /search/image  /search/multimodal
       ↓
-  [FRONTEND Streamlit]
+  [FRONTEND HTML/JS]
 ```
 
 ---
@@ -153,6 +153,24 @@ python data/insert_documents.py
 python text_module/split.py
 ```
 
+### 8. Levantar el backend y el frontend
+
+```bash
+# Backend (API REST de búsqueda)
+uvicorn backend.app:app --port 8000
+
+# Frontend (en otra terminal, sirve el HTML estático)
+python -m http.server 5500 --directory frontend
+```
+
+Abre `http://localhost:5500/index.html`. La interfaz tiene tres modos: **texto**,
+**imagen** y **multimodal**, y muestra los resultados con título, categoría y thumbnail.
+
+> La búsqueda por **texto** funciona con solo el módulo de texto. La búsqueda por
+> **imagen** requiere las dependencias y los datos del módulo de imagen (`opencv`,
+> `scikit-learn` y la tabla de imágenes poblada); si no están, el backend igual
+> levanta y los endpoints de imagen avisan que no está disponible.
+
 ---
 
 ## Detalles de implementación
@@ -204,14 +222,14 @@ Resultados sobre muestra de 199 documentos:
 | Scraper BBC News | ✅ Completo |
 | Inserción en PostgreSQL | ✅ Completo |
 | Split de texto | ✅ Completo |
-| Extractor TF-IDF | 🔄 En desarrollo |
-| Codebook lingüístico | 🔄 En desarrollo |
-| Índice invertido SPIMI | 🔄 En desarrollo |
-| Búsqueda por texto | 🔄 En desarrollo |
-| Módulo imagen (SIFT + K-Means) | 🔄 En desarrollo |
-| Backend FastAPI | 🔄 En desarrollo |
-| Frontend Streamlit | 🔄 En desarrollo |
-| Evaluación comparativa | 🔄 Pendiente |
+| Extractor TF-IDF | ✅ Completo |
+| Codebook lingüístico | ✅ Completo |
+| Índice invertido SPIMI | ✅ Completo |
+| Búsqueda por texto | ✅ Completo |
+| Módulo imagen (SIFT + K-Means) | ✅ Completo |
+| Backend FastAPI (texto/imagen/multimodal) | ✅ Completo |
+| Frontend (texto/imagen/multimodal) | ✅ Completo |
+| Evaluación comparativa (Fase 4) | 🔄 En curso |
 
 ---
 
