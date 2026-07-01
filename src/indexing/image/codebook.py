@@ -61,9 +61,29 @@ def persist(centroids: np.ndarray, conn) -> None:
     np.save(CODEBOOK_PATH, centroids)
 
 
-def load_codebook() -> np.ndarray:
-    """Carga los centroides cacheados (k, 128)."""
-    return np.load(CODEBOOK_PATH)
+def load_codebook(conn=None) -> np.ndarray:
+    """
+    Carga los centroides (k, 128) desde codebook_image (word_id 1..k).
+
+    Se lee de la BD (no del .npy) para que el backend sea autosuficiente a partir
+    del dump: el cache en disco no viaja al contenedor. Si la tabla está vacía cae
+    al cache local, útil solo en la máquina del maintainer durante el build.
+    """
+    own = conn is None
+    if own:
+        conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT centroid FROM codebook_image ORDER BY word_id")
+    rows = [r[0] for r in cur.fetchall()]
+    cur.close()
+    if own:
+        conn.close()
+    if not rows:
+        return np.load(CODEBOOK_PATH)
+    return np.array(
+        [np.fromstring(str(r).strip("[]"), sep=",") for r in rows],
+        dtype=np.float32,
+    )
 
 
 def build(k: int = K, conn=None) -> dict:

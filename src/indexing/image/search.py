@@ -112,7 +112,7 @@ def buscar(image_path: str, top_n: int = 10, group_by_doc: bool = True,
     if own_conn:
         conn = get_connection()
 
-    centroids = load_codebook()
+    centroids = load_codebook(conn)
     qtf_by_id = query_visual_words(image_path, centroids)
     postings = _fetch_postings(conn, list(qtf_by_id), max_chunks)
     n_chunks = _count_chunks(conn, max_chunks)

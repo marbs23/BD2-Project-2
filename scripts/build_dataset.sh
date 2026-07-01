@@ -24,16 +24,13 @@ $PY -m pipeline.scrape_text
 echo "==> 2/3  Índice de texto (insert -> chunks -> TF-IDF -> codebook -> SPIMI)..."
 ./scripts/setup.sh
 
-# --- Pipeline de IMAGEN desactivado por ahora ---------------------------------
-# Descomenta este bloque cuando quieras incluir la modalidad de imagen en el dump.
-# echo "==> Descarga de imágenes (documents.image_url -> data/raw/images)..."
-# $PY -m pipeline.scrape_images
-#
-# echo "==> Pipeline de imagen (SIFT -> K-Means -> índice invertido)..."
-# $PY -m src.indexing.image.extractor
-# $PY -m src.indexing.image.codebook
-# $PY -m src.indexing.image.index
-# ------------------------------------------------------------------------------
+echo "==> Descarga de imágenes (documents.image_url -> data/raw/images)..."
+$PY -m pipeline.scrape_images
+
+echo "==> Pipeline de imagen (SIFT -> K-Means -> índice invertido)..."
+$PY -m src.indexing.image.extractor
+$PY -m src.indexing.image.codebook
+$PY -m src.indexing.image.index
 
 echo "==> 3/3  Generando dump distribuible (db/seed/dump.sql.gz)..."
 mkdir -p db/seed

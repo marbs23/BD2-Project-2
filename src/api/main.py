@@ -11,6 +11,7 @@ texto y la imagen de un mismo artículo.
 """
 import os
 import tempfile
+import traceback
 from collections import defaultdict
 
 from fastapi import FastAPI, File, Form, UploadFile
@@ -72,6 +73,11 @@ async def _buscar_imagen(file: UploadFile, top_n: int) -> list[dict]:
         tmp.write(await file.read())
         tmp.close()
         return image_search.buscar(tmp.name, top_n=top_n)
+    except Exception:
+        # Degradar con gracia: si falta índice/codebook de imagen o falla el motor,
+        # devolvemos vacío en vez de un 500 (el texto y el multimodal siguen vivos).
+        traceback.print_exc()
+        return []
     finally:
         os.unlink(tmp.name)
 
