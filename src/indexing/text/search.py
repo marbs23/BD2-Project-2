@@ -25,8 +25,10 @@ from src.core.db import get_connection
 from src.indexing.text.extractor import preprocess
 
 
-def _count_chunks(conn) -> int:
-    """N = número total de chunks de la colección (para el IDF)."""
+def _count_chunks(conn, max_chunks: int | None = None) -> int:
+    """N = número de chunks de la colección (para el IDF). Acotado por max_chunks si se da."""
+    if max_chunks is not None:
+        return max_chunks
     cur = conn.cursor()
     cur.execute("SELECT count(*) FROM text_chunks")
     n = cur.fetchone()[0]
@@ -55,15 +57,18 @@ def _query_term_ids(conn, tokens: list[str]) -> dict[int, int]:
     return {word_to_id[w]: c for w, c in qtf.items() if w in word_to_id}
 
 
-def _fetch_postings(conn, word_ids: list[int]) -> dict[int, list[tuple[int, float]]]:
-    """Trae las posting lists de los word_ids dados: {word_id: [(chunk_id, tf_idf), ...]}."""
+def _fetch_postings(conn, word_ids: list[int],
+                    max_chunks: int | None = None) -> dict[int, list[tuple[int, float]]]:
+    """Posting lists de los word_ids: {word_id: [(chunk_id, tf_idf), ...]}, hasta max_chunks."""
     if not word_ids:
         return {}
+    sql = "SELECT word_id, chunk_id, tf_idf FROM inverted_index_text WHERE word_id = ANY(%s)"
+    params: list = [word_ids]
+    if max_chunks is not None:
+        sql += " AND chunk_id <= %s"
+        params.append(max_chunks)
     cur = conn.cursor()
-    cur.execute(
-        "SELECT word_id, chunk_id, tf_idf FROM inverted_index_text WHERE word_id = ANY(%s)",
-        (word_ids,),
-    )
+    cur.execute(sql, params)
     postings: dict[int, list[tuple[int, float]]] = defaultdict(list)
     for word_id, chunk_id, tf_idf in cur.fetchall():
         postings[word_id].append((chunk_id, tf_idf))
@@ -118,7 +123,8 @@ def _snippet(content: str, length: int = 160) -> str:
     return content[:length] + ("…" if len(content) > length else "")
 
 
-def buscar(query: str, top_n: int = 10, group_by_doc: bool = True, conn=None) -> list[dict]:
+def buscar(query: str, top_n: int = 10, group_by_doc: bool = True,
+           conn=None, max_chunks: int | None = None) -> list[dict]:
     """
     Recupera los top-N resultados para la query rankeados por similitud de coseno:
 
@@ -127,6 +133,8 @@ def buscar(query: str, top_n: int = 10, group_by_doc: bool = True, conn=None) ->
     Cada resultado incluye chunk_id, doc_id, title, url, score y snippet. Si
     group_by_doc es True (por defecto) se conserva el mejor chunk por documento,
     de modo que el top-N son artículos distintos.
+
+    max_chunks restringe la búsqueda a los primeros N chunks (carga del benchmark).
     """
     own_conn = conn is None
     if own_conn:
@@ -134,8 +142,8 @@ def buscar(query: str, top_n: int = 10, group_by_doc: bool = True, conn=None) ->
 
     tokens = preprocess(query)
     qtf_by_id = _query_term_ids(conn, tokens)
-    postings = _fetch_postings(conn, list(qtf_by_id))
-    n_chunks = _count_chunks(conn)
+    postings = _fetch_postings(conn, list(qtf_by_id), max_chunks)
+    n_chunks = _count_chunks(conn, max_chunks)
 
     # Acumulación término a término del producto punto + norma de la query.
     dot: dict[int, float] = defaultdict(float)
