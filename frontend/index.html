@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Búsqueda multimodal · BBC News</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f7f7f8;
+    --surface: #ffffff;
+    --border: #e6e6e9;
+    --border-strong: #d4d4d8;
+    --text: #16161a;
+    --muted: #6b6b73;
+    --faint: #9a9aa2;
+    --accent: #2347e8;
+    --accent-weak: #eef1fe;
+    --radius: 10px;
+    --radius-sm: 7px;
+    --sans: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans); background: var(--bg); color: var(--text);
+    line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 64px 20px 96px; }
+
+  .eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em;
+             text-transform: uppercase; color: var(--faint); margin-bottom: 14px; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
+  .lead { color: var(--muted); font-size: 15px; margin-top: 8px; }
+
+  /* selector de modo */
+  .modes { display: inline-flex; gap: 4px; margin: 28px 0 12px; }
+  .mode { border: 1px solid var(--border); background: var(--surface); font: inherit;
+          font-size: 13px; color: var(--muted); padding: 6px 14px; border-radius: 999px;
+          cursor: pointer; transition: border-color .15s, color .15s; }
+  .mode:hover { border-color: var(--border-strong); }
+  .mode[aria-selected="true"] { background: var(--accent); border-color: var(--accent);
+                                 color: #fff; font-weight: 500; }
+
+  /* barra de búsqueda protagonista */
+  .bar { display: flex; align-items: stretch; gap: 0; background: var(--surface);
+         border: 1px solid var(--border-strong); border-radius: var(--radius);
+         overflow: hidden; box-shadow: 0 1px 2px rgba(20,20,30,.04); }
+  .bar:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+  .bar input[type="text"] { flex: 1; font: inherit; font-size: 16px; border: none;
+                            padding: 16px 18px; background: none; color: var(--text); }
+  .bar input[type="text"]:focus { outline: none; }
+  .bar button.go { font: inherit; font-size: 14px; font-weight: 600; color: #fff;
+                   background: var(--accent); border: none; padding: 0 22px; cursor: pointer; }
+  .bar button.go:hover { background: #1d3ed1; }
+  .bar button.go:active { transform: scale(.99); }
+  .bar button.go:disabled { background: var(--border-strong); cursor: not-allowed; }
+
+  /* zona de imagen */
+  .drop { display: flex; align-items: center; gap: 12px; background: var(--surface);
+          border: 1px dashed var(--border-strong); border-radius: var(--radius);
+          padding: 16px 18px; cursor: pointer; color: var(--muted); font-size: 15px; }
+  .drop.over { border-color: var(--accent); background: var(--accent-weak); color: var(--accent); }
+  .drop strong { color: var(--text); font-weight: 600; }
+  .drop .tag { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--faint); }
+
+  .alpha { display: flex; align-items: center; gap: 12px; margin-top: 12px;
+           font-size: 13px; color: var(--muted); }
+  .alpha input { flex: 1; accent-color: var(--accent); }
+  .alpha .val { font-family: var(--mono); min-width: 56px; text-align: right; color: var(--text); }
+
+  /* ejemplos en el estado vacío */
+  .suggest { margin-top: 36px; }
+  .suggest p { font-size: 13px; color: var(--faint); margin-bottom: 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { font: inherit; font-size: 13px; color: var(--text); background: var(--surface);
+          border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* resultados */
+  .rhead { display: flex; align-items: baseline; justify-content: space-between;
+           margin: 36px 0 14px; }
+  .rhead .count { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+  .rhead .for { font-size: 13px; color: var(--faint); }
+  .results { display: flex; flex-direction: column; gap: 8px; }
+  .state { color: var(--muted); font-size: 14px; padding: 8px 2px; }
+
+  .card { display: grid; grid-template-columns: 34px 112px 1fr; gap: 14px; align-items: center;
+          padding: 12px 14px; background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius); text-decoration: none; color: inherit;
+          transition: border-color .15s, transform .15s; }
+  .card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+  .rank { font-family: var(--mono); font-size: 13px; color: var(--faint); }
+  .thumb { width: 112px; height: 76px; object-fit: cover; border-radius: var(--radius-sm);
+           background: #eeeef1; }
+  .info { min-width: 0; }
+  .title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .row { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+  .badge { font-size: 11px; font-weight: 500; color: var(--accent); background: var(--accent-weak);
+           padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .relev { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+  .meter { flex: 1; height: 4px; max-width: 160px; background: #ededf0; border-radius: 999px; overflow: hidden; }
+  .meter span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+  .scoreval { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  /* skeleton */
+  .sk { display: grid; grid-template-columns: 34px 112px 1fr; gap: 14px; align-items: center;
+        padding: 12px 14px; background: var(--surface); border: 1px solid var(--border);
+        border-radius: var(--radius); }
+  .sk .b { background: linear-gradient(90deg,#efeff1 25%,#f6f6f7 50%,#efeff1 75%);
+           background-size: 200% 100%; animation: sh 1.3s infinite; border-radius: var(--radius-sm); }
+  .sk .t { width: 112px; height: 76px; }
+  .sk .col { display: flex; flex-direction: column; gap: 8px; }
+  .sk .l { height: 12px; } .sk .l.s { width: 45%; }
+  @keyframes sh { to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .sk .b { animation: none; } .card:hover { transform: none; } }
+
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Proyecto BD2 · Recuperación multimodal</p>
+  <h1>Busca noticias por texto o por imagen.</h1>
+  <p class="lead">Índice invertido propio sobre el corpus de BBC News. Texto, imagen o ambos.</p>
+
+  <div class="modes" role="tablist">
+    <button class="mode" role="tab" aria-selected="true" data-mode="text">Texto</button>
+    <button class="mode" role="tab" aria-selected="false" data-mode="image">Imagen</button>
+    <button class="mode" role="tab" aria-selected="false" data-mode="multimodal">Multimodal</button>
+  </div>
+
+  <div id="input-text">
+    <div class="bar">
+      <input type="text" id="query" placeholder="russia ukraine war" autocomplete="off">
+      <button class="go" id="go-text">Buscar</button>
+    </div>
+  </div>
+
+  <div id="input-image" class="hidden">
+    <div class="drop" id="drop">
+      <strong>Elige una imagen</strong> o arrástrala aquí
+      <span class="tag" id="file-name"></span>
+    </div>
+    <input type="file" id="file" accept="image/*" class="hidden">
+    <div class="bar" style="margin-top:12px">
+      <button class="go" id="go-image" style="flex:1">Buscar por imagen</button>
+    </div>
+  </div>
+
+  <div id="input-multi" class="hidden">
+    <div class="bar">
+      <input type="text" id="query-multi" placeholder="russia ukraine war" autocomplete="off">
+      <button class="go" id="go-multi">Buscar</button>
+    </div>
+    <div class="drop" id="drop-multi" style="margin-top:10px">
+      <strong>Imagen (opcional)</strong> para combinar
+      <span class="tag" id="file-name-multi"></span>
+    </div>
+    <div class="alpha">
+      <span>Texto</span>
+      <input type="range" id="alpha" min="0" max="1" step="0.1" value="0.5">
+      <span>Imagen</span>
+      <span class="val" id="alpha-val">0.5 / 0.5</span>
+    </div>
+  </div>
+
+  <div id="empty">
+    <div class="suggest">
+      <p>Prueba con</p>
+      <div class="chips">
+        <button class="chip">russia ukraine war</button>
+        <button class="chip">football premier league</button>
+        <button class="chip">business energy prices</button>
+        <button class="chip">technology</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="output" class="hidden">
+    <div class="rhead">
+      <span class="count" id="count"></span>
+      <span class="for" id="for"></span>
+    </div>
+    <div class="results" id="results"></div>
+  </div>
+</div>
+
+<script>
+const API = "http://localhost:8000";
+let mode = "text";
+let file = null;
+
+const $ = (s) => document.querySelector(s);
+const results = $("#results");
+
+// modo
+document.querySelectorAll(".mode").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".mode").forEach((b) => b.setAttribute("aria-selected", "false"));
+    btn.setAttribute("aria-selected", "true");
+    mode = btn.dataset.mode;
+    $("#input-text").classList.toggle("hidden", mode !== "text");
+    $("#input-image").classList.toggle("hidden", mode !== "image");
+    $("#input-multi").classList.toggle("hidden", mode !== "multimodal");
+  });
+});
+
+// chips de ejemplo
+document.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => {
+  document.querySelector('.mode[data-mode="text"]').click();
+  $("#query").value = c.textContent;
+  buscar();
+}));
+
+// imagen
+function bindDrop(dropEl, nameEl) {
+  dropEl.addEventListener("click", () => $("#file").click());
+  ["dragover", "dragenter"].forEach((e) => dropEl.addEventListener(e, (ev) => { ev.preventDefault(); dropEl.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((e) => dropEl.addEventListener(e, (ev) => { ev.preventDefault(); dropEl.classList.remove("over"); }));
+  dropEl.addEventListener("drop", (ev) => setFile(ev.dataTransfer.files[0]));
+}
+bindDrop($("#drop"));
+bindDrop($("#drop-multi"));
+$("#file").addEventListener("change", () => setFile($("#file").files[0]));
+function setFile(f) {
+  if (!f || !f.type.startsWith("image/")) return;
+  file = f;
+  $("#file-name").textContent = f.name;
+  $("#file-name-multi").textContent = f.name;
+}
+
+// peso
+$("#alpha").addEventListener("input", (e) => {
+  const a = Number(e.target.value);
+  $("#alpha-val").textContent = a.toFixed(1) + " / " + (1 - a).toFixed(1);
+});
+
+// disparadores
+$("#go-text").addEventListener("click", buscar);
+$("#go-image").addEventListener("click", buscar);
+$("#go-multi").addEventListener("click", buscar);
+$("#query").addEventListener("keydown", (e) => { if (e.key === "Enter") buscar(); });
+$("#query-multi").addEventListener("keydown", (e) => { if (e.key === "Enter") buscar(); });
+
+async function buscar() {
+  const fd = new FormData();
+  fd.append("top_n", 10);
+  let endpoint, label;
+  if (mode === "text") {
+    const q = $("#query").value.trim();
+    if (!q) return;
+    endpoint = "/search/text"; fd.append("query", q); label = q;
+  } else if (mode === "image") {
+    if (!file) { $("#drop").classList.add("over"); setTimeout(() => $("#drop").classList.remove("over"), 600); return; }
+    endpoint = "/search/image"; fd.append("file", file); label = file.name;
+  } else {
+    const q = $("#query-multi").value.trim();
+    if (!q && !file) return;
+    endpoint = "/search/multimodal";
+    fd.append("query", q); fd.append("alpha", $("#alpha").value);
+    if (file) fd.append("file", file);
+    label = [q, file && file.name].filter(Boolean).join(" + ");
+  }
+
+  show("#output"); $("#empty").classList.add("hidden");
+  loading();
+  try {
+    const res = await fetch(API + endpoint, { method: "POST", body: fd });
+    if (!res.ok) throw new Error(res.status);
+    render((await res.json()).results || [], label);
+  } catch (e) {
+    $("#count").textContent = "";
+    $("#for").textContent = "";
+    results.innerHTML = '<p class="state">No se pudo conectar con el servidor. Verifica que esté activo en localhost:8000.</p>';
+  }
+}
+
+function show(id) { $(id).classList.remove("hidden"); }
+
+function loading() {
+  $("#count").textContent = "Buscando";
+  $("#for").textContent = "";
+  results.innerHTML = Array.from({ length: 5 }).map(() =>
+    '<div class="sk"><div class="b" style="width:18px;height:13px"></div><div class="b t"></div>' +
+    '<div class="col"><div class="b l"></div><div class="b l s"></div></div></div>').join("");
+}
+
+function render(items, label) {
+  $("#for").textContent = label ? "para " + label : "";
+  if (!items.length) {
+    $("#count").textContent = "Sin resultados";
+    results.innerHTML = '<p class="state">No hay coincidencias. Prueba con otro término.</p>';
+    return;
+  }
+  $("#count").textContent = items.length + (items.length === 1 ? " resultado" : " resultados");
+  results.innerHTML = items.map((r, i) => {
+    const pct = Math.round(Math.max(0, Math.min(1, Number(r.score))) * 100);
+    return `
+    <a class="card" href="${r.url || "#"}" target="_blank" rel="noopener">
+      <span class="rank">${String(i + 1).padStart(2, "0")}</span>
+      <img class="thumb" src="${r.image_url || ""}" alt="" onerror="this.style.visibility='hidden'">
+      <div class="info">
+        <div class="title">${esc(r.title) || "(sin título)"}</div>
+        <div class="row">
+          ${r.category ? `<span class="badge">${esc(r.category)}</span>` : ""}
+          <span class="relev">
+            <span class="meter"><span style="width:${pct}%"></span></span>
+            <span class="scoreval">${Number(r.score).toFixed(3)}</span>
+          </span>
+        </div>
+      </div>
+    </a>`;
+  }).join("");
+}
+
+function esc(s) {
+  if (!s) return "";
+  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+</script>
+</body>
+</html>

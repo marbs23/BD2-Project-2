@@ -1,7 +1,7 @@
 """Tests de la lógica pura del índice de imagen (issue #10)."""
 import numpy as np
 
-from image_module.index import _histogramas_por_patch
+from src.indexing.image.index import _histogramas_por_patch
 
 
 def test_reconstruye_histogramas_por_patch():

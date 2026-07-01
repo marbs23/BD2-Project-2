@@ -1,13 +1,31 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
+.DS_Store
 .env
+.env.local
 
-# data pesada — no va a git
-data/raw/images/
-data/raw/bbc_news.csv
-data/raw/metadata.json
-data/processed/
+# Datos — demasiado pesados o generados (no reproducibles en git).
+# Quien clona el repo restaura la BD desde el dump (ver README), no scrapea.
+data/*
+!data/.gitkeep
 
+# Dump de la BD distribuible (se descarga del Drive, ver README).
+db/seed/*
+!db/seed/.gitkeep
+
+# Artefactos de indexado + caché
 *.npy
 *.pkl
+*.pkl.tmp
+
+# Resultados de evaluación (regenerables con eval/benchmark.py)
+eval/results/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

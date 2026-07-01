@@ -1,7 +1,7 @@
 """Tests del extractor SIFT (issue #8)."""
 import numpy as np
 
-from image_module.extractor import extract_patch
+from src.indexing.image.extractor import extract_patch
 
 
 def _patch_con_textura(size=120):

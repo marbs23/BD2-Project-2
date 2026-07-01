@@ -1,7 +1,7 @@
 """Tests del split en patches (issue #7)."""
 import numpy as np
 
-from image_module.split import split_patches, load_gray, GRID
+from src.indexing.image.split import split_patches, load_gray, GRID
 
 
 def _imagen(h=400, w=600):

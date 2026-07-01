@@ -1,0 +1,10 @@
+.venv
+.git
+__pycache__
+*.pyc
+*.npy
+*.pkl
+.env
+data
+db/seed
+eval/results

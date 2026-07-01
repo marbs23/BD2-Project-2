@@ -1,35 +1,34 @@
 """
-Evaluación experimental - pipeline de imagen (Fase 4)
+Evaluación experimental - pipeline de texto (Fase 4)
 
-Compara el índice invertido propio contra los baselines de pgvector (HNSW, IVFFlat)
-sobre el mismo conjunto de consultas y a distintas cargas (1K / 10K / 20K chunks).
-Mide las cinco métricas del enunciado:
+Compara el índice invertido propio (SPIMI) contra los índices de texto completo
+nativos de PostgreSQL (GIN y GiST) sobre el mismo conjunto de consultas y a distintas
+cargas (1K / 10K / 20K chunks). Mide las cinco métricas del enunciado:
 
-  - latencia por consulta, en caché fría (primera) y caliente (repetidas).
+  - latencia por consulta, en caché fría (primera) y caliente (repeticiones).
   - throughput (consultas por segundo).
-  - precisión@k: fracción del top-k cuya categoría coincide con la de la consulta
-    (ground-truth = categoría del artículo, el proxy de relevancia del proyecto).
-  - memoria    : tamaño en disco del índice (tabla inverted_index_image para el
-    propio; índice HNSW/IVFFlat para los baselines).
-  - accesos I/O: nº de bloques de 8 KB que toca la consulta (EXPLAIN BUFFERS).
+  - precisión@k : fracción del top-k cuya categoría coincide con la de la consulta
+                  (ground-truth = categoría del artículo, el proxy de relevancia del
+                  proyecto).
+  - memoria     : tamaño en disco del índice (tabla inverted_index_text para el propio;
+                  índice GIN/GiST para los baselines).
+  - accesos I/O : nº de bloques de 8 KB que toca la consulta (EXPLAIN BUFFERS).
 
-Cada carga restringe la búsqueda a sus primeros N chunks (max_chunks); las cargas
-que la colección no alcanza se omiten con aviso. Cada baseline pgvector se mide con
-su índice aislado: si HNSW e IVFFlat coexisten, el planner elegiría uno solo y las
-dos filas medirían lo mismo. Semilla fija para reproducir el muestreo de consultas.
+Cada carga restringe la búsqueda a sus primeros N chunks (max_chunks); las cargas que
+la colección no alcanza se omiten con aviso. Cada baseline se mide con su índice
+aislado (GIN o GiST): si coexisten, el planner elegiría uno solo. Semilla fija para
+reproducir el muestreo de consultas.
 """
 import json
 import time
 import random
 
 from src.core.db import get_connection
-from src.core.paths import IMAGES_DIR, ROOT
-from src.indexing.image import search as propio
-from src.indexing.image.codebook import load_codebook
-from src.indexing.image.search import query_visual_words
-from src.indexing.image.split import GRID
-from src.indexing.image.pgvec import to_pgvector
-from eval import pgvector_bench as pg
+from src.core.paths import ROOT
+from src.indexing.text import search as propio
+from src.indexing.text.extractor import preprocess
+from src.indexing.text.search import _query_term_ids
+from eval import text_bench as tb
 from eval import metrics
 
 SEED = 42
@@ -41,31 +40,43 @@ WARM_REPS = 3
 
 # Relación cuyo tamaño en disco representa "el índice" de cada método.
 RELACION_INDICE = {
-    "propio": "inverted_index_image",
-    "hnsw": "idx_img_hnsw",
-    "ivfflat": "idx_img_ivf",
+    "propio": "inverted_index_text",
+    "gin": "idx_text_gin",
+    "gist": "idx_text_gist",
 }
 
 
-def buscar_metodo(nombre: str, path: str, conn, max_chunks: int):
+def buscar_metodo(nombre: str, query: str, conn, max_chunks: int):
     if nombre == "propio":
-        return propio.buscar(path, top_n=TOP_K, conn=conn, max_chunks=max_chunks)
-    return pg.buscar(path, top_n=TOP_K, conn=conn, max_chunks=max_chunks)
+        return propio.buscar(query, top_n=TOP_K, conn=conn, max_chunks=max_chunks)
+    return tb.buscar(query, top_n=TOP_K, conn=conn, max_chunks=max_chunks)
 
 
 def total_chunks(conn) -> int:
     cur = conn.cursor()
-    cur.execute("SELECT count(*) FROM image_chunks")
+    cur.execute("SELECT count(*) FROM text_chunks")
     n = cur.fetchone()[0]
     cur.close()
     return n
 
 
-def query_docs(conn, n: int) -> list[tuple[int, str]]:
-    """Muestra de (doc_id, categoría) con imagen en disco, para usar como consultas."""
+def query_docs(conn, n: int) -> list[tuple[int, str, str]]:
+    """Muestra de (doc_id, categoría, texto de consulta) para usar como consultas.
+
+    La consulta es el título del artículo y su categoría es el ground-truth. Solo se
+    toman documentos con categoría y con al menos un chunk de texto indexado.
+    """
     cur = conn.cursor()
-    cur.execute("SELECT doc_id, category FROM documents WHERE image_url IS NOT NULL AND image_url <> ''")
-    docs = [(d, c) for d, c in cur.fetchall() if (IMAGES_DIR / f"{d}.jpg").exists()]
+    cur.execute(
+        """
+        SELECT d.doc_id, d.category, d.title
+        FROM documents d
+        WHERE d.category IS NOT NULL AND d.category <> ''
+          AND d.title IS NOT NULL AND d.title <> ''
+          AND EXISTS (SELECT 1 FROM text_chunks tc WHERE tc.doc_id = d.doc_id)
+        """
+    )
+    docs = cur.fetchall()
     cur.close()
     random.Random(SEED).shuffle(docs)
     return docs[:n]
@@ -80,53 +91,43 @@ def precision_at_k(resultados: list[dict], categoria: str, doc_id: int) -> float
     return aciertos / len(vecinos)
 
 
-def _io_blocks(nombre: str, path: str, conn, max_chunks: int) -> int:
+def _io_blocks(nombre: str, query: str, conn, max_chunks: int) -> int:
     """Accesos a bloques de la consulta central del método (proxy de I/O)."""
-    centroids = load_codebook(conn)
     if nombre == "propio":
-        # Acceso central del propio: leer las posting lists de las palabras visuales.
-        word_ids = list(query_visual_words(path, centroids))
+        # Acceso central del propio: leer las posting lists de los términos de la query.
+        word_ids = list(_query_term_ids(conn, preprocess(query)))
         if not word_ids:
             return 0
-        sql = "SELECT word_id, chunk_id, tf_idf FROM inverted_index_image WHERE word_id = ANY(%s)"
+        sql = "SELECT word_id, chunk_id, tf_idf FROM inverted_index_text WHERE word_id = ANY(%s)"
         params: list = [word_ids]
         if max_chunks is not None:
             sql += " AND chunk_id <= %s"
             params.append(max_chunks)
         return metrics.explain_buffers(conn, sql, params)
-    # pgvector: la búsqueda por vecino más cercano (<=>) es su acceso central.
-    vec = pg.query_vector(conn, path, centroids, max_chunks=max_chunks)
-    if vec is None or not vec.any():
-        return 0
-    where = "WHERE ic.norm > 0"
-    params = []
-    if max_chunks is not None:
-        where += " AND ic.chunk_id <= %s"
-        params.append(max_chunks)
-    params += [to_pgvector(vec), TOP_K * (GRID * GRID)]
-    sql = f"SELECT ic.chunk_id FROM image_chunks ic {where} ORDER BY ic.histogram <=> %s LIMIT %s"
+    # GIN/GiST: la consulta de ranking completa es su acceso central.
+    sql, _ = tb.search_sql(max_chunks)
+    params = tb._params(query, max_chunks, TOP_K * 16)
     return metrics.explain_buffers(conn, sql, params)
 
 
 def evaluar_metodo(nombre: str, docs, conn, carga: int) -> dict:
     latencias, precisiones, io_muestras = [], [], []
     cold = None
-    for doc_id, categoria in docs:
-        path = str(IMAGES_DIR / f"{doc_id}.jpg")
+    for doc_id, categoria, query in docs:
         try:
             t0 = time.perf_counter()
-            resultados = buscar_metodo(nombre, path, conn, carga)
+            resultados = buscar_metodo(nombre, query, conn, carga)
             dt = (time.perf_counter() - t0) * 1000
             if cold is None:
                 cold = dt
             for _ in range(WARM_REPS):
                 t0 = time.perf_counter()
-                buscar_metodo(nombre, path, conn, carga)
+                buscar_metodo(nombre, query, conn, carga)
                 latencias.append((time.perf_counter() - t0) * 1000)
             precisiones.append(precision_at_k(resultados, categoria, doc_id))
             # I/O se mide en unas pocas consultas (EXPLAIN ANALYZE es caro).
             if len(io_muestras) < 5:
-                io_muestras.append(_io_blocks(nombre, path, conn, carga))
+                io_muestras.append(_io_blocks(nombre, query, conn, carga))
         except Exception as e:
             conn.rollback()  # no arrastrar una transacción abortada al resto del benchmark
             print(f"[aviso] consulta {doc_id} omitida en {nombre}@{carga}: {e}")
@@ -147,6 +148,7 @@ def evaluar_metodo(nombre: str, docs, conn, carga: int) -> dict:
 
 def run() -> dict:
     conn = get_connection()
+    tb.ensure_tsv(conn)  # columna tsvector para que GIN/GiST puedan construirse
     n_chunks = total_chunks(conn)
     docs = query_docs(conn, N_QUERIES)
 
@@ -161,17 +163,17 @@ def run() -> dict:
 
     resultados = []
     memoria = {}
-    for nombre in ("propio", "hnsw", "ivfflat"):
-        if nombre in ("hnsw", "ivfflat"):
-            print(f"Construyendo índice pgvector aislado: {nombre}")
-            pg.create_index(nombre, conn=conn)
+    for nombre in ("propio", "gin", "gist"):
+        if nombre in ("gin", "gist"):
+            print(f"Construyendo índice de texto aislado: {nombre}")
+            tb.create_index(nombre, conn=conn)
         memoria[nombre] = metrics.index_size_bytes(conn, RELACION_INDICE[nombre])
         for carga in cargas:
             print(f"Evaluando {nombre} @ {carga} chunks")
             r = evaluar_metodo(nombre, docs, conn, carga)
             r["memoria_bytes"] = memoria[nombre]
             resultados.append(r)
-    pg.drop_indexes(conn)
+    tb.drop_indexes(conn)
     conn.close()
 
     salida = {
@@ -181,7 +183,9 @@ def run() -> dict:
         "resultados": resultados,
     }
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    (RESULTS_DIR / "benchmark.json").write_text(json.dumps(salida, indent=2, ensure_ascii=False))
+    (RESULTS_DIR / "text_benchmark.json").write_text(
+        json.dumps(salida, indent=2, ensure_ascii=False)
+    )
     _graficos(resultados, cargas)
     return salida
 
@@ -191,7 +195,7 @@ def _graficos(resultados: list[dict], cargas: list[int]) -> None:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    metodos = ["propio", "hnsw", "ivfflat"]
+    metodos = ["propio", "gin", "gist"]
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
     (ax1, ax2), (ax3, ax4) = axes
     carga_max = max(cargas)
@@ -222,15 +226,15 @@ def _graficos(resultados: list[dict], cargas: list[int]) -> None:
     ax4.set_title(f"Accesos I/O por consulta · {carga_max} chunks"); ax4.set_ylabel("bloques (8 KB)")
 
     fig.tight_layout()
-    fig.savefig(RESULTS_DIR / "benchmark.png", dpi=120)
+    fig.savefig(RESULTS_DIR / "text_benchmark.png", dpi=120)
 
 
 if __name__ == "__main__":
     salida = run()
-    print("\nResultados (imagen):")
+    print("\nResultados (texto):")
     for r in salida["resultados"]:
-        print(f"  {r['metodo']:>8} @ {r['carga']:>6} · fría {r['latencia_fria_ms']:>7.2f}ms · "
+        print(f"  {r['metodo']:>7} @ {r['carga']:>6} · fría {r['latencia_fria_ms']:>7.2f}ms · "
               f"caliente {r['latencia_caliente_ms']:>6.2f}ms · {r['throughput_qps']:>6.1f} q/s · "
               f"P@{TOP_K}={r['precision_at_k']} · {metrics.human_bytes(r['memoria_bytes'])} · "
               f"{r['io_bloques']} bloques")
-    print(f"\nGuardado en {RESULTS_DIR}/ (benchmark.json + benchmark.png)")
+    print(f"\nGuardado en {RESULTS_DIR}/ (text_benchmark.json + text_benchmark.png)")

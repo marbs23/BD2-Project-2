@@ -1,7 +1,7 @@
 """Tests del codebook visual (issue #9)."""
 import numpy as np
 
-from image_module.codebook import train, assign
+from src.indexing.image.codebook import train, assign
 
 
 def test_train_devuelve_k_centroides():
