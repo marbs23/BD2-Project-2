@@ -5,10 +5,14 @@ Lee el dataset original de Kaggle (data/bbc_news.csv), descarga el HTML de cada
 URL y extrae título, descripción, cuerpo, imagen y categoría a data/articulos.csv.
 Guarda de forma incremental y reanuda si se interrumpe.
 
+Corre en paralelo (ThreadPoolExecutor) con un pequeño sleep por worker y backoff
+simple ante 429/503, para no saturar a BBC ni terminar bloqueado a mitad del scraping.
+
 NO lo corre quien clona el repo: el dataset ya viene poblado vía el dump de la BD.
 """
 import csv
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from bs4 import BeautifulSoup
@@ -20,6 +24,10 @@ INPUT = DATA_DIR / "bbc_news.csv"
 OUTPUT = DATA_DIR / "articulos.csv"
 COLUMNAS = ["url", "title", "description", "body", "image_url", "category"]
 
+MAX_WORKERS = 6           # no subir mucho más para no gatillar rate limiting de BBC
+SLEEP_POR_REQUEST = 0.15  # pequeño respiro por hilo (no bloquea a los demás workers)
+BACKOFF_SEGUNDOS = 5      # espera si BBC responde 429/503
+
 
 def clave(url) -> str:
     """
@@ -29,6 +37,7 @@ def clave(url) -> str:
     re-scrapearía todo desde cero.
     """
     return str(url).split("?")[0]
+
 
 RUIDO = [
     "This video can not be played",
@@ -65,9 +74,19 @@ def limpiar_body(texto):
     return "\n\n".join(parrafos_limpios)
 
 
-def scrape_articulo(url):
-    try:
+def _get(url):
+    """GET con un reintento simple si BBC responde 429/503 (rate limiting)."""
+    r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+    if r.status_code in (429, 503):
+        time.sleep(BACKOFF_SEGUNDOS)
         r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+    return r
+
+
+def scrape_articulo(url):
+    time.sleep(SLEEP_POR_REQUEST)  # respiro por request, no serializa a los demás workers
+    try:
+        r = _get(url)
         if r.status_code != 200:
             return None
 
@@ -120,7 +139,14 @@ def run():
     pendientes = [u for u in urls if clave(u) not in procesadas]
     print(f"URLs pendientes: {len(pendientes)}")
 
-    # Scraping con guardado incremental
+    if not pendientes:
+        print("\n✅ Nada por hacer, ya está todo scrapeado")
+        return
+
+    ok = 0
+    fail = 0
+
+    # Scraping en paralelo con guardado incremental
     with open(OUTPUT, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=COLUMNAS)
 
@@ -128,19 +154,23 @@ def run():
         if len(procesadas) == 0:
             writer.writeheader()
 
-        for i, url in enumerate(pendientes, 1):
-            resultado = scrape_articulo(url)
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {pool.submit(scrape_articulo, u): u for u in pendientes}
 
-            if resultado:
-                writer.writerow(resultado)
-                f.flush()  # guardar inmediatamente en disco
-                print(f"[{i}/{len(pendientes)}] ✅ {resultado['title'][:60]}")
-            else:
-                print(f"[{i}/{len(pendientes)}] ❌ {url[:60]}")
+            for i, fut in enumerate(as_completed(futures), 1):
+                url = futures[fut]
+                resultado = fut.result()
 
-            time.sleep(0.3)  # pausa para no saturar BBC
+                if resultado:
+                    writer.writerow(resultado)
+                    f.flush()  # guardar inmediatamente en disco
+                    ok += 1
+                    print(f"[{i}/{len(pendientes)}] ✅ {resultado['title'][:60]}")
+                else:
+                    fail += 1
+                    print(f"[{i}/{len(pendientes)}] ❌ {url[:60]}")
 
-    print("\n✅ Scraping completado")
+    print(f"\n✅ Scraping completado — ok: {ok}, fallidos: {fail}")
 
 
 if __name__ == "__main__":
