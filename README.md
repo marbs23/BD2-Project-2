@@ -248,7 +248,7 @@ cd BD2-Project-2
 cp .env.example .env            # rellena POSTGRES_USER / POSTGRES_PASSWORD
 
 # 3. Descargar el dump de la BD y colocarlo en db/seed/
-#    Link: <PEGAR_AQUÍ_EL_LINK_DE_GOOGLE_DRIVE>
+#    Link: https://drive.google.com/file/d/1qR1q_ggqBi8zdTVTVucb7AS0ubuGc3jU/view?usp=sharing
 #    -> db/seed/dump.sql.gz
 
 # 4. Levantar todo

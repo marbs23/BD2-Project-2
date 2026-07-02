@@ -13,6 +13,8 @@ Recorre los documentos con imagen descargada, aplica el split y guarda en disco:
 Es el equivalente al cache corpus_stats.pkl del pipeline de texto: trabajo pesado
 hecho una vez para que el codebook y el índice no recalculen.
 """
+import os
+
 import cv2
 import numpy as np
 
@@ -22,6 +24,12 @@ from src.indexing.image.split import load_gray, split_patches
 
 DESCRIPTORS_PATH = PROCESSED_DIR / "descriptors.npy"
 CHUNK_INDEX_PATH = PROCESSED_DIR / "chunk_index.npy"
+
+# Límite de imágenes a indexar. SIFT sobre las decenas de miles de imágenes del
+# scrape no cabe en RAM (todos los descriptores se apilan en un único array); para
+# la evaluación (Fase 4) basta un subconjunto. Se toma de la variable de entorno
+# IMAGE_LIMIT; 0 o ausente = todas las imágenes disponibles.
+IMAGE_LIMIT = int(os.getenv("IMAGE_LIMIT", "0"))
 
 
 def extract_patch(patch: np.ndarray) -> np.ndarray | None:
@@ -43,12 +51,16 @@ def documents_with_image(conn) -> list[int]:
     return [d for d in ids if (IMAGES_DIR / f"{d}.jpg").exists()]
 
 
-def build(conn=None) -> dict:
+def build(conn=None, limit: int | None = None) -> dict:
     """
-    Extrae descriptores de todos los documentos con imagen y los persiste.
+    Extrae descriptores de los documentos con imagen y los persiste.
 
     Los patches sin keypoints se omiten (no generan chunk). Devuelve un resumen
     con el total de descriptores, patches y documentos procesados.
+
+    `limit` acota cuántas imágenes se indexan (por defecto, la variable de entorno
+    IMAGE_LIMIT). Se toman los primeros doc_id con imagen en disco, para que el
+    build sea acotado en memoria/tiempo sin cambiar el algoritmo.
     """
     own_conn = conn is None
     if own_conn:
@@ -57,6 +69,11 @@ def build(conn=None) -> dict:
     doc_ids = documents_with_image(conn)
     if own_conn:
         conn.close()
+
+    limit = IMAGE_LIMIT if limit is None else limit
+    disponibles = len(doc_ids)
+    if limit and limit > 0:
+        doc_ids = doc_ids[:limit]
 
     all_descriptors: list[np.ndarray] = []
     chunk_index: list[tuple[int, int, int]] = []
@@ -80,6 +97,7 @@ def build(conn=None) -> dict:
 
     return {
         "documentos": len(doc_ids),
+        "documentos_disponibles": disponibles,
         "patches": len(chunk_index),
         "descriptores": len(descriptors),
     }
@@ -93,7 +111,8 @@ def load_descriptors() -> tuple[np.ndarray, np.ndarray]:
 if __name__ == "__main__":
     stats = build()
     print("Extracción SIFT completada")
-    print(f"  documentos:    {stats['documentos']}")
+    limite = f" (tope IMAGE_LIMIT={IMAGE_LIMIT})" if IMAGE_LIMIT > 0 else ""
+    print(f"  documentos:    {stats['documentos']} de {stats['documentos_disponibles']}{limite}")
     print(f"  patches (chunks): {stats['patches']}")
     print(f"  descriptores:  {stats['descriptores']}")
     if stats["patches"]:

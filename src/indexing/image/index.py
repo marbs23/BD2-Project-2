@@ -78,52 +78,51 @@ def build_index(conn=None) -> dict:
 
     cur = conn.cursor()
     cur.execute("TRUNCATE image_chunks RESTART IDENTITY CASCADE")
+    cur.execute("TRUNCATE inverted_index_image")
 
-    # 1) Insertar image_chunks (histograma TF-IDF denso + norma) y recuperar chunk_id.
-    # doc_id y patch_index salen de chunk_index, en el mismo orden que los histogramas.
-    tfidf_por_patch = []
-    valores_chunks = []
-    for i, h in enumerate(histogramas):
+    def _tfidf(h: np.ndarray) -> np.ndarray:
+        """Histograma TF-IDF denso del patch: (1 + log10(tf)) * idf en las palabras presentes."""
         present = h > 0
         tfidf = np.zeros(k, dtype=np.float64)
         tfidf[present] = (1 + np.log10(h[present])) * idf[present]
-        tfidf_por_patch.append(tfidf)
-        norm = float(np.sqrt(np.sum(tfidf * tfidf)))
-        valores_chunks.append(
-            (int(chunk_index[i, 0]), int(chunk_index[i, 1]), norm, to_pgvector(tfidf))
-        )
-    chunk_ids = execute_values(
-        cur,
-        "INSERT INTO image_chunks (doc_id, patch_index, norm, histogram) VALUES %s "
-        "RETURNING chunk_id",
-        valores_chunks,
-        fetch=True,
-    )
-    chunk_ids = [row[0] for row in chunk_ids]
+        return tfidf
 
-    # 2) Insertar el índice invertido: una posting por palabra visual presente.
-    cur.execute("TRUNCATE inverted_index_image")
-    batch = []
+    # Se procesa por lotes: por cada lote se insertan sus image_chunks (histograma
+    # denso + norma), se recuperan sus chunk_id e inmediatamente se insertan sus
+    # postings. Así no se mantienen en memoria los histogramas TF-IDF densos de toda
+    # la colección a la vez; el chunk_id (SERIAL) queda alineado con el orden de
+    # inserción dentro del lote, así que las postings referencian el patch correcto.
     n_postings = 0
-    for chunk_id, tfidf in zip(chunk_ids, tfidf_por_patch):
-        present = np.nonzero(tfidf)[0]
-        for word_idx in present:
-            # word_id en BD es 1..k; el label del cluster es 0..k-1.
-            batch.append((int(word_idx) + 1, chunk_id, float(tfidf[word_idx])))
-            n_postings += 1
-            if len(batch) >= INSERT_BATCH:
-                execute_values(
-                    cur,
-                    "INSERT INTO inverted_index_image (word_id, chunk_id, tf_idf) VALUES %s",
-                    batch,
-                )
-                batch.clear()
-    if batch:
-        execute_values(
+    for inicio in range(0, n_patches, INSERT_BATCH):
+        tfidf_lote = [_tfidf(h) for h in histogramas[inicio:inicio + INSERT_BATCH]]
+
+        valores_chunks = [
+            (int(chunk_index[inicio + j, 0]), int(chunk_index[inicio + j, 1]),
+             float(np.sqrt(np.sum(t * t))), to_pgvector(t))
+            for j, t in enumerate(tfidf_lote)
+        ]
+        chunk_ids = execute_values(
             cur,
-            "INSERT INTO inverted_index_image (word_id, chunk_id, tf_idf) VALUES %s",
-            batch,
+            "INSERT INTO image_chunks (doc_id, patch_index, norm, histogram) VALUES %s "
+            "RETURNING chunk_id",
+            valores_chunks,
+            fetch=True,
         )
+
+        # Una posting por palabra visual presente. word_id en BD es 1..k; el label
+        # del cluster es 0..k-1.
+        postings = [
+            (int(word_idx) + 1, chunk_id, float(t[word_idx]))
+            for (chunk_id,), t in zip(chunk_ids, tfidf_lote)
+            for word_idx in np.nonzero(t)[0]
+        ]
+        if postings:
+            execute_values(
+                cur,
+                "INSERT INTO inverted_index_image (word_id, chunk_id, tf_idf) VALUES %s",
+                postings,
+            )
+            n_postings += len(postings)
 
     conn.commit()
     cur.close()

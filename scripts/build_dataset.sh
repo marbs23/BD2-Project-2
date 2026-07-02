@@ -19,6 +19,34 @@ cd "$(dirname "$0")/.."   # raíz del proyecto
 
 PY="${PYTHON:-python}"
 
+# Cargar .env para que bash (el pg_dump del paso 4) vea POSTGRES_USER/DB, igual que
+# Python los lee con load_dotenv(). Sin esto, `set -u` aborta con "unbound variable".
+if [ -f .env ]; then
+  set -a           # exporta todo lo que se defina a continuación
+  . ./.env
+  set +a
+fi
+
+# Nº de imágenes a indexar. SIFT sobre las decenas de miles de imágenes del scrape
+# no cabe en RAM; para la evaluación basta un subconjunto (ver README, Fase 4).
+# Overridable:  IMAGE_LIMIT=3000 ./scripts/build_dataset.sh
+IMAGE_LIMIT="${IMAGE_LIMIT:-5000}"
+
+echo "==> 0/4  Arranque limpio (cache de disco + tablas de la BD)..."
+rm -rf data/processed          # descriptors/corpus_stats/spimi_blocks (regenerables)
+$PY - <<'PYEOF'
+from src.core.db import get_connection
+conn = get_connection(); cur = conn.cursor()
+cur.execute("""
+    TRUNCATE inverted_index_text, inverted_index_image,
+             text_chunks, image_chunks,
+             codebook_text, codebook_image, documents
+    RESTART IDENTITY CASCADE
+""")
+conn.commit(); cur.close(); conn.close()
+print("   tablas reiniciadas")
+PYEOF
+
 echo "==> 1/4  Insertando documentos desde articulos.csv..."
 $PY -m pipeline.ingest_documents
 
@@ -28,9 +56,8 @@ $PY -m src.indexing.text.extractor   # TF-IDF (cachea estadísticas)
 $PY -m src.indexing.text.codebook    # top-5000 términos
 $PY -m src.indexing.text.spimi       # índice invertido
 
-echo "==> 3/4  Pipeline de IMAGEN (split -> SIFT -> K-Means -> índice invertido)..."
-$PY -m src.indexing.image.split      # patches
-$PY -m src.indexing.image.extractor  # SIFT (cachea descriptores)
+echo "==> 3/4  Pipeline de IMAGEN (tope ${IMAGE_LIMIT} imágenes: SIFT -> K-Means -> índice)..."
+IMAGE_LIMIT="$IMAGE_LIMIT" $PY -m src.indexing.image.extractor  # SIFT (cachea descriptores)
 $PY -m src.indexing.image.codebook   # K-Means 512 centroides
 $PY -m src.indexing.image.index      # histogramas + índice
 
